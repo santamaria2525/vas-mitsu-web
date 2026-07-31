@@ -2054,11 +2054,14 @@ const PHOTO_DEFAULT_OFFSET = { dx:92, dy:-82 }; // 図面px基準の既定オフ
 const photoImgCache = new Map(); // photoId -> {img, ready, src}
 
 // k は倍率。画面表示は常に1(画面px基準の一定サイズ)。提案書スライドへ書き出すときだけ、
-// 図面の実サイズに対して枠が小さすぎないよう1より大きい倍率を渡す(オフセットも同じ倍率で伸ばす)
+// 図面の実サイズに対して枠が小さすぎないよう1より大きい倍率を渡す(オフセットも同じ倍率で伸ばす)。
+// dv.photoScale はユーザーが枠ごとに設定する表示倍率(0.5〜3、既定1)。kとは独立に掛かる
+const PHOTO_SCALE_MIN = 0.5, PHOTO_SCALE_MAX = 3;
 function photoFrameRect(dv, zoom, k){
   k = k||1;
+  const s = clamp(dv.photoScale||1, PHOTO_SCALE_MIN, PHOTO_SCALE_MAX);
   const off = (dv.photoBox && typeof dv.photoBox.dx==='number') ? dv.photoBox : PHOTO_DEFAULT_OFFSET;
-  const w = k*PHOTO_FRAME_W/zoom, h = k*PHOTO_FRAME_H/zoom;
+  const w = k*s*PHOTO_FRAME_W/zoom, h = k*s*PHOTO_FRAME_H/zoom;
   const cx = dv.x + off.dx*k, cy = dv.y + off.dy*k;
   return { x:cx-w/2, y:cy-h/2, w, h, cx, cy };
 }
@@ -2155,7 +2158,31 @@ function drawPhotoFrames(ctx, floor, opts){
 
     const lb = labels[dv.id];
     if(lb) drawPhotoBadge(ctx, r.x, r.y, lb, zoom/k);
+
+    // サイズ変更グリップ(右下角)。画面表示のみ(提案書への書き出しには出さない)
+    if(photo && !opts.onlyWithPhoto){
+      const gs = 8/zoom;
+      ctx.save();
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#e02434';
+      ctx.lineWidth = 1.4/zoom;
+      ctx.fillRect(r.x+r.w-gs/2, r.y+r.h-gs/2, gs, gs);
+      ctx.strokeRect(r.x+r.w-gs/2, r.y+r.h-gs/2, gs, gs);
+      ctx.restore();
+    }
   }
+}
+// 実写画像枠のサイズ変更グリップ(右下角)の当たり判定
+function hitPhotoResizeHandle(floor, pt){
+  if(!ui.showPhotos) return null;
+  const thresh = 12/ui.view.zoom;
+  for(let i=floor.devices.length-1;i>=0;i--){
+    const dv = floor.devices[i];
+    if(!isCameraDevice(dv) || !getPhoto(dv.photoId)) continue;
+    const r = photoFrameRect(dv, ui.view.zoom);
+    if(Math.hypot(pt.x-(r.x+r.w), pt.y-(r.y+r.h)) <= thresh) return dv;
+  }
+  return null;
 }
 function hitPhotoFrame(floor, pt){
   if(!ui.showPhotos) return null;
@@ -2429,6 +2456,14 @@ function onPointerDown(e){
       return;
     }
   }
+  // 実写画像のサイズ変更グリップ(枠本体の移動より優先して判定する)
+  const pfr = hitPhotoResizeHandle(floor, world);
+  if(pfr){
+    selectObj('device', pfr);
+    pushHistory();
+    state.dragInfo = { type:'resize-photo', dv:pfr };
+    return;
+  }
   // 実写画像の枠(カメラ本体より手前に判定する。枠は機器から離れた位置にあるため通常は競合しない)
   const pf = hitPhotoFrame(floor, world);
   if(pf){
@@ -2506,6 +2541,14 @@ function onPointerMove(e){
   } else if(di.type==='move-photo'){
     const dv = di.dv;
     dv.photoBox = { dx:(world.x-di.offset.x)-dv.x, dy:(world.y-di.offset.y)-dv.y };
+    scheduleRender();
+  } else if(di.type==='resize-photo'){
+    // 枠中心からポインタまでの距離を、倍率1のときの半幅/半高と比べて倍率を決める(角が指に追従する)
+    const dv = di.dv;
+    const r = photoFrameRect(dv, ui.view.zoom);
+    const hw0 = PHOTO_FRAME_W/(2*ui.view.zoom), hh0 = PHOTO_FRAME_H/(2*ui.view.zoom);
+    const sRaw = Math.max(Math.abs(world.x-r.cx)/hw0, Math.abs(world.y-r.cy)/hh0);
+    dv.photoScale = clamp(Math.round(sRaw*20)/20, PHOTO_SCALE_MIN, PHOTO_SCALE_MAX);
     scheduleRender();
   } else if(di.type==='handle-rotate'){
     const dv = di.dv;
@@ -3214,7 +3257,10 @@ function inspectorDeviceHtml(dv, floor){
         <button data-action="pickPhoto">${ph?'差し替え':'画像を選択'}</button>
         ${ph?'<button class="danger" data-action="clearPhoto">画像を外す</button>':''}
       </div>
-      <div class="hint">図面上の枠はドラッグで移動できます</div>
+      ${ph?`
+      <div class="k" style="margin-top:8px;"><span>画像の表示サイズ</span><span>×${(dv.photoScale||1).toFixed(2).replace(/0$/,'')}</span></div>
+      <input type="range" min="0.5" max="3" step="0.05" value="${clamp(dv.photoScale||1,0.5,3)}" data-field="photoScale">`:''}
+      <div class="hint">図面上の枠はドラッグで移動${ph?'、右下の白い角をドラッグでサイズ変更':''}できます</div>
     </div>`;
   }
   if(isAp){
@@ -3294,6 +3340,7 @@ function initInspectorEvents(){
     if(f==='fovDeg') ref.fovDeg = clamp(v||90,10,360);
     else if(f==='rangeM') ref.rangeM = Math.max(0.1, v||5);
     else if(f==='rot') ref.rot = v||0;
+    else if(f==='photoScale') ref.photoScale = clamp(v||1, PHOTO_SCALE_MIN, PHOTO_SCALE_MAX);
     scheduleRender(); renderMoneyBar(); markDirty();
   });
 }
@@ -5429,6 +5476,16 @@ function runSelfTests(){
   t('photoFrameRect: photoBox指定があればそれを使う', ()=>{
     const r = photoFrameRect({ x:0, y:0, photoBox:{ dx:10, dy:-20 } }, 1);
     assertClose(r.cx, 10); assertClose(r.cy, -20);
+  });
+  t('photoFrameRect: photoScaleで枠サイズが変わり、範囲外は0.5〜3にクランプされる', ()=>{
+    const dv = { x:0, y:0 };
+    assertClose(photoFrameRect({ ...dv, photoScale:2 }, 1).w, PHOTO_FRAME_W*2);
+    assertClose(photoFrameRect({ ...dv, photoScale:0.5 }, 1).h, PHOTO_FRAME_H*0.5);
+    assertClose(photoFrameRect({ ...dv, photoScale:99 }, 1).w, PHOTO_FRAME_W*3);   // 上限クランプ
+    assertClose(photoFrameRect({ ...dv, photoScale:0.01 }, 1).w, PHOTO_FRAME_W*0.5); // 下限クランプ
+    assertClose(photoFrameRect(dv, 1).w, PHOTO_FRAME_W); // 未設定は等倍
+    // 中心位置はphotoScaleの影響を受けない(サイズだけ変わる)
+    assertClose(photoFrameRect({ ...dv, photoScale:2 }, 1).cx, PHOTO_DEFAULT_OFFSET.dx);
   });
   t('cameraLabels: カメラだけにC1,C2…を配置順で振る', ()=>{
     const floor = { devices:[ {id:'a',type:'hub'}, {id:'b',type:'cam_box'}, {id:'c',type:'ap'}, {id:'d',type:'cam_360'} ] };
