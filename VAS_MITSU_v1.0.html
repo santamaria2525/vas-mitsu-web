@@ -4084,14 +4084,16 @@ function buildExportableHtml(pricingData){
 /* =========================================================================
    22.6 見積書PDF(window.print)
    ========================================================================= */
-// opts.forcePhotos=true のときは表示トグル(ui.showPhotos)に関わらず実写画像の枠を必ず描く(提案書スライド用)。
+// opts.forcePhotos=true は提案書スライド用の指定だが、実写画像トグル(ui.showPhotos)がOFFのときは
+// 出力にも写真枠を入れない(画面で消している=出したくない、という意図を出力にも反映する)。
 // 戻り値は {dataUrl, w, h}。wとhは生成したcanvasの実ピクセルサイズ(PPTXの縦横比計算に使う)
 function renderFloorImage(floor, maxW, maxH, opts){
   opts = opts||{};
   const savedView = { ...ui.view }; const savedSel = ui.sel; const savedFloorIdx = ui.floorIdx;
   const savedShowPhotos = ui.showPhotos;
+  const exportPhotos = !!opts.forcePhotos && savedShowPhotos;
   ui.floorIdx = project.floors.indexOf(floor); ui.sel = null;
-  if(opts.forcePhotos) ui.showPhotos = true;
+  if(exportPhotos) ui.showPhotos = true;
   const w = floor.img ? floor.img.width : 1200, h = floor.img ? floor.img.height : 800;
   const scale = Math.min(maxW/w, maxH/h, 2);
   const tempCanvas = document.createElement('canvas');
@@ -4102,8 +4104,8 @@ function renderFloorImage(floor, maxW, maxH, opts){
   ctx.save(); ctx.translate(ui.view.x, ui.view.y); ctx.scale(ui.view.zoom, ui.view.zoom);
   if(floor.img){ try{ ctx.drawImage(floor.img,0,0); }catch(e){} }
   drawWalls(ctx, floor); drawWires(ctx, floor); drawRisers(ctx, floor); drawDevices(ctx, floor);
-  // 実写画像の枠は提案書スライド(forcePhotos)のときだけ描く。見積書PDFは従来どおり枠なしのまま
-  if(opts.forcePhotos){
+  // 実写画像の枠は提案書スライド(forcePhotos)かつトグルONのときだけ描く。見積書PDF/pptxは従来どおり枠なしのまま
+  if(exportPhotos){
     // 図面全体に対して枠が小さすぎると提案書で読めないため、図面幅の約10%になるよう倍率を上げる。
     // 画像未設定のプレースホルダ枠は提案書には出さない
     const baseFrameW = PHOTO_FRAME_W/scale;
@@ -4637,7 +4639,8 @@ function buildProposalSlideData(){
 
     const labels = NEXT_PURE.cameraLabels(floor);
     const photos = [];
-    for(const dv of floor.devices){
+    // 実写画像トグルOFFのときは、図面上の枠と同様にサムネイル一覧もスライドへ入れない
+    for(const dv of (ui.showPhotos ? floor.devices : [])){
       if(!isCameraDevice(dv)) continue;
       const p = getPhoto(dv.photoId);
       if(!p) continue;
@@ -4966,7 +4969,7 @@ async function exportProposalPptx(){
   const modeSuffix = project.priceMode==='useOnly' ? '_ユースのみ' : '';
   const filename = `VAS提案書_${(project.meta.title||'無題').replace(/[\\/:*?"<>|]/g,'_')}${modeSuffix}.pptx`;
   downloadBlob(filename, new Blob([bytes], { type:'application/vnd.openxmlformats-officedocument.presentationml.presentation' }));
-  toast(`提案書スライドを書き出しました(${project.floors.length}枚・${NEXT_PURE.priceModeLabel(project.priceMode)})`, 'ok');
+  toast(`提案書スライドを書き出しました(${project.floors.length}枚・${NEXT_PURE.priceModeLabel(project.priceMode)}${ui.showPhotos?'':'・実写画像なし'})`, 'ok');
 }
 
 /* =========================================================================
@@ -5596,6 +5599,29 @@ function runSelfTests(){
   t('pptxTextBox: 文字列がXMLエスケープされて<a:t>に入る', ()=>{
     const xml = pptxTextBox(9, 0, 0, 100, 20, { text:'A&B<C>' });
     assertEqual(xml.indexOf('<a:t>A&amp;B&lt;C&gt;</a:t>')>0, true);
+  });
+  t('提案書: 実写画像トグルOFFのときは写真がスライドデータに含まれない(ONなら含まれる)', ()=>{
+    const savedProject = project, savedFloorIdx = ui.floorIdx, savedSel = ui.sel, savedShow = ui.showPhotos;
+    try{
+      const pricing = makePricingMaster();
+      const floor = makeFloor('1F');
+      floor.scale = { mPerPx:0.05, line:null };
+      floor.devices.push({ id:'dv1', type:'cam_in', x:100, y:100, rot:0, fovDeg:90, rangeM:5, photoId:'p1' });
+      project = { meta:{ quoteNo:'CS-00000000-001', title:'t', customer:'', staff:'', validDays:60 },
+        floors:[floor], pricing, counts:makeDefaultCounts(), options:makeDefaultOptions(pricing),
+        photos:{ p1:{ src:'data:image/jpeg;base64,/9j/4AAQSkZJRg==', name:'x', w:4, h:3 } }, rank:'A', priceMode:'full' };
+      ui.floorIdx = 0; ui.sel = null;
+      ui.showPhotos = false;
+      const off = buildProposalSlideData();
+      assertEqual(off.slides[0].model.photos.length, 0);
+      assertEqual(off.media.length, 1); // 図面画像のみ
+      ui.showPhotos = true;
+      const on = buildProposalSlideData();
+      assertEqual(on.slides[0].model.photos.length, 1);
+      assertEqual(on.media.length, 2); // 図面+写真
+    } finally {
+      project = savedProject; ui.floorIdx = savedFloorIdx; ui.sel = savedSel; ui.showPhotos = savedShow;
+    }
   });
   t('見積書PPTX: 実際に生成でき、A4縦サイズ・明細ページ+フロアページ構成になる', ()=>{
     const savedProject = project, savedFloorIdx = ui.floorIdx, savedSel = ui.sel;
