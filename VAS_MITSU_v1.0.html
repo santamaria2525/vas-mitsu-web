@@ -2023,7 +2023,26 @@ function drawDevices(ctx, floor){
     const master = project.pricing.devices[dv.type];
     const color = master ? master.color : '#999';
     const isFan = dv.type.startsWith('cam') || dv.type==='ap';
-    if(isFan){
+    if(dv.type==='ap'){
+      // APはカメラと違い「電波到達の予測範囲」なので、視野角の扇形ではなく全周円で描く。
+      // 縁を実線で囲わず、中心から外へ向かって薄くなるラジアルグラデーションで不確かさを表現する。
+      // ポリゴン自体は壁遮蔽込みの全周(fovDeg=360)で作り、壁の内側だけが光るようにする
+      const r = Math.max(1, rangePx(dv, floor));
+      const pts = computeFovPoints(Object.assign({}, dv, { fovDeg:360 }), floor);
+      if(pts.length>2){
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
+        ctx.closePath();
+        const g = ctx.createRadialGradient(dv.x, dv.y, 0, dv.x, dv.y, r);
+        g.addColorStop(0,    hexToRgba(color, 0.32));
+        g.addColorStop(0.55, hexToRgba(color, 0.18));
+        g.addColorStop(0.85, hexToRgba(color, 0.07));
+        g.addColorStop(1,    hexToRgba(color, 0));
+        ctx.fillStyle = g;
+        ctx.fill();
+      }
+    } else if(isFan){
       const pts = computeFovPoints(dv, floor);
       if(pts.length>2){
         ctx.beginPath();
@@ -2777,6 +2796,14 @@ function trayFloorHtml(){
       </div>
     </div>
     <div class="traySection">
+      <div class="trayLabel">実写画像(カメラの視野画像)</div>
+      <div class="segCtrl">
+        <button type="button" data-photovis="on" class="${ui.showPhotos?'active':''}">表示</button>
+        <button type="button" data-photovis="off" class="${!ui.showPhotos?'active':''}">非表示</button>
+      </div>
+      <div class="hint">図面上の画像枠の表示/非表示。右下のズームバーの画像ボタンでも切り替えられます</div>
+    </div>
+    <div class="traySection">
       <div class="trayLabel">フロア</div>
       ${rows}
       <button class="bigBtn" data-action="addFloor">${ic('plus')}<span>フロアを追加</span></button>
@@ -2926,6 +2953,18 @@ function initTrayEvents(){
     // トレイ④(オプション)のランク/設定費ステッパーは内訳ドロワーと同じdata-*属性・同じ状態を操作する
     const rankBtn = e.target.closest('[data-rank]');
     if(rankBtn){ project.rank = rankBtn.dataset.rank; syncSetupOptionPanels(); return; }
+    const pvBtn = e.target.closest('[data-photovis]');
+    if(pvBtn){
+      const on = pvBtn.dataset.photovis==='on';
+      if(ui.showPhotos!==on){
+        ui.showPhotos = on;
+        savePhotoPref();
+        updatePhotoToggleBtn();
+        refreshAll();
+        toast(on ? '実写画像の枠を表示' : '実写画像の枠を非表示', 'ok');
+      }
+      return;
+    }
     const pmBtn = e.target.closest('[data-pricemode]');
     if(pmBtn){
       const mode = pmBtn.dataset.pricemode==='useOnly' ? 'useOnly' : 'full';
