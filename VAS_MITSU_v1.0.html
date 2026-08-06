@@ -5671,6 +5671,99 @@ function runSelfTests(){
     assertEqual(/^3\.11\./.test(pdfjsLib.version), true);
   });
 
+  /* ---- 2026-08-06追補: 夜間全数QA(E2E79項目+fuzz1000件)で確立した不変条件の常設化 ----
+     シード固定の軽量fuzz(各30件)なので毎回同じ入力で決定的に走る。乱数はmulberry32 */
+  const qaRand = (seed)=>{ let a=seed|0; return ()=>{ a=a+0x6D2B79F5|0; let t2=Math.imul(a^a>>>15,1|a); t2=t2+Math.imul(t2^t2>>>7,61|t2)^t2; return ((t2^t2>>>14)>>>0)/4294967296; }; };
+  function qaRandomProject(rnd){
+    const pricing = makePricingMaster();
+    const devKeys = Object.keys(pricing.devices);
+    const wireKeys = Object.keys(pricing.wires);
+    const riserKeys = Object.keys(pricing.risers);
+    const nFloors = 1 + Math.floor(rnd()*3);
+    const floors = [];
+    for(let f=0; f<nFloors; f++){
+      const fl = makeFloor((f+1)+'F');
+      if(rnd()<0.7) fl.scale = { mPerPx: 0.001 + rnd()*0.2, line:null };
+      const nDev = Math.floor(rnd()*12);
+      for(let d=0; d<nDev; d++) fl.devices.push({ id:uid(), type:devKeys[Math.floor(rnd()*devKeys.length)], x:rnd()*1000, y:rnd()*800, rot:0, fovDeg:90, rangeM:5 });
+      const nWire = Math.floor(rnd()*4);
+      for(let w=0; w<nWire; w++) fl.wires.push({ id:uid(), type:wireKeys[Math.floor(rnd()*wireKeys.length)], pts:[{x:rnd()*1000,y:rnd()*800},{x:rnd()*1000,y:rnd()*800},{x:rnd()*1000,y:rnd()*800}] });
+      const nR = Math.floor(rnd()*3);
+      for(let r=0; r<nR; r++) fl.risers.push({ id:uid(), type:riserKeys[Math.floor(rnd()*riserKeys.length)], x:rnd()*1000, y:rnd()*800 });
+      floors.push(fl);
+    }
+    const counts = { setupFees:{} };
+    for(const k of Object.keys(pricing.setupFees||{})) counts.setupFees[k] = Math.floor(rnd()*5);
+    const options = makeDefaultOptions(pricing);
+    for(const k of Object.keys(options)){
+      if(rnd()<0.4){ options[k].enabled = true;
+        if(rnd()<0.5){ options[k].mode='rate'; options[k].value=Math.floor(rnd()*31); }
+        else { options[k].mode='amount'; options[k].value=Math.floor(rnd()*100001); } }
+    }
+    return { meta:{ quoteNo:'CS-QA-000', title:'QA', customer:'QA', staff:'', validDays:60 },
+      floors, pricing, counts, options, photos:{},
+      rank:['A','B','C'][Math.floor(rnd()*3)],
+      priceMode: rnd()<0.5 ? 'useOnly' : 'full' };
+  }
+  t('恒等式fuzz(30件): 商品小計+工事費小計=税抜合計', ()=>{
+    const rnd = qaRand(20260806);
+    for(let i=0;i<30;i++){
+      const p = qaRandomProject(rnd);
+      const tot = NEXT_PURE.calcTotals(p);
+      const s = NEXT_PURE.buildQuoteSections(tot);
+      assertEqual(s.productSubtotal + s.constructionSubtotal, tot.pretax, 'i='+i);
+    }
+  });
+  t('恒等式fuzz(30件): 機器含む−ユースのみの小計差=機器本体費合計', ()=>{
+    const rnd = qaRand(20260807);
+    for(let i=0;i<30;i++){
+      const p = qaRandomProject(rnd);
+      let bodySum = 0;
+      for(const fl of p.floors) for(const dv of fl.devices){ const m=p.pricing.devices[dv.type]; if(m) bodySum += (m.price||0); }
+      const subFull = NEXT_PURE.calcTotals(Object.assign({}, p, {priceMode:'full'})).subtotal;
+      const subUse  = NEXT_PURE.calcTotals(Object.assign({}, p, {priceMode:'useOnly'})).subtotal;
+      assertEqual(subFull - subUse, bodySum, 'i='+i);
+    }
+  });
+  t('保存→読込fuzz(30件): 税抜/税込/機器数/価格区分が往復一致', ()=>{
+    const rnd = qaRand(20260808);
+    for(let i=0;i<30;i++){
+      const p = qaRandomProject(rnd);
+      const t1 = NEXT_PURE.calcTotals(p);
+      const built = buildProjectFromData(JSON.parse(JSON.stringify(serializeProject(p))));
+      assertEqual(!!built, true, 'i='+i+' built');
+      const t2 = NEXT_PURE.calcTotals(built);
+      assertEqual([t2.pretax,t2.total], [t1.pretax,t1.total], 'i='+i+' totals');
+      const dc = (x)=>x.floors.reduce((a,f)=>a+f.devices.length,0);
+      assertEqual(dc(built), dc(p), 'i='+i+' devices');
+      assertEqual(built.priceMode, p.priceMode, 'i='+i+' priceMode');
+    }
+  });
+  t('loader: フロア0件のプロジェクトは復元対象外(null)を返す', ()=>{
+    const p = qaRandomProject(qaRand(1));
+    p.floors = [];
+    assertEqual(buildProjectFromData(JSON.parse(JSON.stringify(serializeProject(p)))), null);
+  });
+  t('CSV: 税抜合計行・税込行の値がcalcTotalsと一致(両価格区分)', ()=>{
+    const rnd = qaRand(20260809);
+    for(const pm of ['full','useOnly']){
+      const p = qaRandomProject(rnd); p.priceMode = pm;
+      const tot = NEXT_PURE.calcTotals(p);
+      const csv = buildCsvContent(p);
+      assertEqual(csv.indexOf(',税抜合計,,,'+tot.pretax)>0, true, pm);
+      assertEqual(csv.indexOf(',(参考)税込,,,'+tot.total)>0, true, pm);
+    }
+  });
+  t('XSS防御: 危険なラベルが提案書スライドXMLへ生タグのまま混入しない', ()=>{
+    const evil = '</scr'+'ipt><img src=x onerror=alert(1)>';
+    const model = { titleText: evil, subText:'テスト', floorName:'1F', priceMode:'full',
+      plot:{ rid:'rId2', w:100, h:100 }, photos:[], legend:[{color:'#123456', label:evil, qtyLabel:'1台'}],
+      totalIncTax: 1100, totalExTax: 1000, floorNote:'' };
+    const xml = pptxBuildSlideShapes(model);
+    assertEqual(xml.indexOf(evil), -1, '生の危険文字列が残っている');
+    assertEqual(xml.indexOf('&lt;img src=x onerror=alert(1)&gt;')>0, true, 'エスケープ済み表現が無い');
+  });
+
   let pass=0;
   const results=[];
   for(const {name,fn} of tests){
