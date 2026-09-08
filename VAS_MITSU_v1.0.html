@@ -170,6 +170,15 @@ svg{ display:block; width:100%; height:100%; }
 .wireCard .nm{ flex:1; font-size:.78rem; }
 .wireCard .sub{ font-size:.66rem; color:var(--text-mut); }
 .wireCard .badge2{ min-width:20px; padding:2px 6px; border-radius:999px; background:var(--ink-700); color:var(--text-mut); font-size:.64rem; }
+.wireSettingRow{ display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:40px; padding:7px 9px; border:1px solid var(--ink-600); border-radius:var(--r-btn); background:var(--ink-800); }
+.wireSettingRow .wireSettingText{ min-width:0; font-size:.75rem; }
+.wireSettingRow .wireSettingText small{ display:block; margin-top:2px; color:var(--text-mut); font-size:.64rem; line-height:1.3; }
+.wireSettingRow .segCtrl{ flex:0 0 116px; }
+.wireSettingRow .segCtrl button{ height:32px; font-size:.68rem; }
+.wireSegmentTable{ width:100%; border-collapse:collapse; font-size:.72rem; }
+.wireSegmentTable th,.wireSegmentTable td{ padding:6px 5px; border-bottom:1px solid var(--ink-600); text-align:left; vertical-align:top; }
+.wireSegmentTable th{ color:var(--text-mut); font-size:.65rem; font-weight:600; }
+.wireSegmentTable td:last-child{ text-align:right; white-space:nowrap; }
 
 .formGrid{ display:flex; flex-direction:column; gap:10px; }
 .formField{ display:flex; flex-direction:column; gap:4px; }
@@ -314,6 +323,10 @@ svg{ display:block; width:100%; height:100%; }
 #btnPhotoToggle.on{ background:var(--accent); color:#fff; }
 .inspPhotoBox{ width:100%; aspect-ratio:4/3; border-radius:10px; border:1px dashed var(--ink-600); background:var(--ink-700); display:flex; align-items:center; justify-content:center; overflow:hidden; margin-bottom:8px; }
 .inspPhotoBox img{ width:100%; height:100%; object-fit:contain; display:block; }
+.inspPhotoBox[data-photo-drop]{border-color:#8fb5a5;background:#f1f6f3;}
+.deviceAnnotationField{padding:10px 14px;background:#f4f8f5;border-bottom:1px solid #dce7df;}
+.heroCard .heroImportHint{font-size:11px;line-height:1.5;margin-top:10px;}
+#canvasWrap[data-drop-hint]::after{content:attr(data-drop-hint);position:absolute;inset:12px;z-index:30;border:2px dashed #39785b;border-radius:12px;background:rgba(238,248,241,.94);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:18px;font-weight:700;color:#255540;pointer-events:none;}
 .inspPhotoBox .ph{ font-size:.72rem; color:var(--text-mut); text-align:center; padding:8px; }
 .inspPhotoBtns{ display:flex; gap:8px; }
 .inspPhotoBtns button{ flex:1; min-height:34px; border-radius:var(--r-chip); border:1px solid var(--ink-600); background:var(--ink-700); color:var(--text); font-size:.74rem; font-family:inherit; cursor:pointer; }
@@ -519,13 +532,16 @@ svg{ display:block; width:100%; height:100%; }
 .chipBtn.ok{color:#fff;}
 #emptyState{padding:70px 28px 72px;}
 .heroCard{max-width:680px;width:100%;padding:0;display:grid;grid-template-columns:1.25fr 1fr;text-align:left;overflow:hidden;border:1px solid #d9e4da;border-radius:18px;box-shadow:0 18px 65px #234b3210;}
-.heroContent{padding:34px;}
-.heroCard .hicon{width:36px;height:36px;margin:20px 0 14px;}
+.heroContent{padding:26px;}
+.heroCard .hicon{display:none;}
 .heroCard h2{font-size:26px;font-weight:600;line-height:1.5;letter-spacing:-.04em;color:#254538;}
 .heroCard p{font-size:11px;line-height:1.9;color:#758479;margin:12px 0 22px;}
 .heroBtns{gap:7px;}
 .heroBtns button{font-size:11px;border-color:#dce5df;}
 .heroBtns button.withCaption .hdCaption{font-size:9px;line-height:1.5;}
+.heroCard .heroImportHint{margin:10px 0 0;}
+#emptyState{overflow:auto;}
+@media(max-height:760px){#emptyState{align-items:flex-start;padding-top:48px;padding-bottom:28px;}.heroContent{padding:18px 24px;}.heroCard h2{font-size:23px;}.heroCard p{margin:8px 0 12px;}.heroBtns button{min-height:38px;}}
 .heroVisual{position:relative;background:#f0f5ed;border-left:1px solid #e0e8db;padding:34px 20px;display:flex;flex-direction:column;justify-content:center;gap:22px;}
 .heroVisual svg{width:100%;height:auto;}
 .heroSteps{font-size:10px;color:#6e8372;line-height:2.4;}
@@ -827,8 +843,10 @@ svg{ display:block; width:100%; height:100%; }
             <button class="primary" id="heroPick"></button>
             <button id="heroCam"></button>
             <button id="heroSample"></button>
+            <button id="heroLoad"></button>
             <button id="heroDemo" class="withCaption"></button>
           </div>
+          <p class="heroImportHint">保存した案件JSONは、この画面にドロップしても開けます。</p>
           </div>
           <div class="heroVisual" aria-hidden="true">
             <div class="visualCaption">PLAN / CONNECT / DELIVER</div>
@@ -1527,6 +1545,7 @@ let ui = {
   floorIdx:0, mode:'select', tool:null, sel:null,
   view:{ x:0, y:0, zoom:1 }, trayStep:null,
   scaleTemp:null, drawing:null, lastPointerWorld:{x:0,y:0},
+  wireSnapMode:'free', wireShiftDown:false,
   showPhotos:true   // カメラ実写画像の枠を図面上に表示するか(端末に記憶。initAppで復元)
 };
 const undoStacks = {}; const redoStacks = {};
@@ -1589,10 +1608,15 @@ function generateQuoteNo(){
 const PROJECT_APP_ID = 'vas-mitsu'; // 旧名称(NEXT)時代は'vas-mitsu-next'。buildProjectFromDataはapp値を検証しないため旧識別子のJSONもそのまま読める(後方互換)
 const PROJECT_VERSION = 2;
 
+// 表示と資料への反映は別設定。旧案件はどちらもOFFとして取り込む。
+function mergeDrawingOptions(value){
+  return { showWireLengths:value?.showWireLengths===true, exportWireLengths:value?.exportWireLengths===true };
+}
+
 function serializeProject(p){
   return {
     app: PROJECT_APP_ID, version: PROJECT_VERSION, savedAt: Date.now(),
-    meta:p.meta, rank:p.rank, priceMode:p.priceMode||'full', pricing:p.pricing, counts:p.counts, options:p.options, photos:p.photos||{},
+    meta:p.meta, rank:p.rank, priceMode:p.priceMode||'full', pricing:p.pricing, counts:p.counts, options:p.options, photos:p.photos||{}, drawingOptions:mergeDrawingOptions(p.drawingOptions),
     floors:p.floors.map(f=>({ id:f.id, name:f.name, imgSrc:f.imgSrc, scale:f.scale, devices:f.devices, wires:f.wires, walls:f.walls, risers:f.risers }))
   };
 }
@@ -1629,6 +1653,7 @@ function buildProjectFromData(data){
     counts: mergeCountsDefaults(data.counts),
     options: mergeOptionsDefaults(data.options, pricing),
     photos: mergePhotos(data.photos), // 旧JSON(photosキーなし)は空オブジェクトで補完する
+    drawingOptions: mergeDrawingOptions(data.drawingOptions),
     floors
   };
 }
@@ -1714,6 +1739,7 @@ function makeFreshProject(){
     counts: makeDefaultCounts(),
     options: makeDefaultOptions(pricing),
     photos:{},
+    drawingOptions:mergeDrawingOptions(),
     rank:'A',
     priceMode:'full'
   };
@@ -1749,7 +1775,27 @@ function pushHistory(){
   redoStacks[floor.id] = [];
   updateUndoRedoBtns();
 }
+function drawingUndoState(){
+  if(!ui.drawing || (ui.mode!=='wire' && ui.mode!=='wall')) return null;
+  if(!Array.isArray(ui.drawing.redoPts)) ui.drawing.redoPts = [];
+  return ui.drawing;
+}
+function syncDrawingUi(){
+  renderModeChip();
+  updateUndoRedoBtns();
+  scheduleRender();
+}
 function undo(){
+  const drawing = drawingUndoState();
+  if(drawing){
+    if(drawing.pts.length){
+      drawing.redoPts.push(drawing.pts.pop());
+      syncDrawingUi();
+      return;
+    }
+    // 作図点のRedoが残る間は、床の確定済み履歴へ誤って移動しない。
+    if(drawing.redoPts.length){ updateUndoRedoBtns(); return; }
+  }
   const floor = currentFloor();
   if(!floor) return;
   const stack = undoStacks[floor.id];
@@ -1762,6 +1808,15 @@ function undo(){
   refreshAll();
 }
 function redo(){
+  const drawing = drawingUndoState();
+  if(drawing){
+    if(drawing.redoPts.length){
+      drawing.pts.push(drawing.redoPts.pop());
+      syncDrawingUi();
+      return;
+    }
+    if(drawing.pts.length){ updateUndoRedoBtns(); return; }
+  }
   const floor = currentFloor();
   if(!floor) return;
   const stack = redoStacks[floor.id];
@@ -1777,6 +1832,12 @@ function updateUndoRedoBtns(){
   const floor = currentFloor();
   const us = floor ? (undoStacks[floor.id]||[]) : [];
   const rs = floor ? (redoStacks[floor.id]||[]) : [];
+  const drawing = drawingUndoState();
+  if(drawing && (drawing.pts.length || drawing.redoPts.length)){
+    els.btnUndo.disabled = drawing.pts.length===0;
+    els.btnRedo.disabled = drawing.redoPts.length===0;
+    return;
+  }
   els.btnUndo.disabled = us.length===0;
   els.btnRedo.disabled = rs.length===0;
 }
@@ -1789,7 +1850,7 @@ function cacheEls(){
   ['titleField','quoteNo','btnUndo','btnRedo','btnSave','btnLoad','btnSettings','btnHelp',
    'flowrail','tray','canvasWrap','cv','floorTabs','modeChip','modeChipText','modeChipClose',
    'zoomCtrl','btnZoomOut','btnZoomIn','btnFit','zoomPct','actionChipBar','btnStepBack','liveDist','btnConfirmDraw','btnCancelDraw',
-   'emptyState','heroIcon','heroPick','heroCam','heroSample','heroDemo','inspector',
+   'emptyState','heroIcon','heroPick','heroCam','heroSample','heroLoad','heroDemo','inspector',
    'btnPhotoToggle','priceModeBadge','workspaceInfo','workflowHint','outputCenterBtn','handbookBtn',
    'totalWrap','totalMain','totalTax','breakdownChips','checkBadge','pdfBtn','proposalBtn','quotePptxBtn','fileInput','loadFileInput','photoInput',
    'modalOverlay','modalBox','toastWrap','selftestPanel','logoMark',
@@ -2227,7 +2288,113 @@ function drawWalls(ctx, floor){
   }
 }
 
-function drawWires(ctx, floor){
+function formatWireMeasurement(value, unit){
+  const places = unit==='m' ? 2 : 1;
+  const rounded = Number(Number(value).toFixed(places));
+  return `${rounded}${unit}`;
+}
+function validWireScale(mPerPx){
+  return Number.isFinite(Number(mPerPx)) && Number(mPerPx)>0 ? Number(mPerPx) : null;
+}
+function wireSegmentMeasurements(pts, mPerPx){
+  const list = Array.isArray(pts) ? pts : [];
+  const scale = validWireScale(mPerPx);
+  const scaled = scale!=null;
+  const result = [];
+  for(let i=1;i<list.length;i++){
+    const start = list[i-1], end = list[i];
+    const lengthPx = Math.hypot(Number(end.x)-Number(start.x), Number(end.y)-Number(start.y));
+    const lengthM = scaled ? lengthPx*scale : null;
+    result.push({ index:i, start, end, lengthPx, lengthM,
+      label:scaled ? formatWireMeasurement(lengthM,'m') : `${formatWireMeasurement(lengthPx,'px')} (縮尺未設定)` });
+  }
+  return result;
+}
+function wireLabelLayout(ctx,x,y,text,opts){
+  opts=opts||{};
+  const labelScale=Number.isFinite(Number(opts.labelScale)) && Number(opts.labelScale)>0 ? Number(opts.labelScale) : 1;
+  const fontPx=12*labelScale, padX=6*labelScale, boxH=20*labelScale;
+  ctx.save(); ctx.font=`700 ${fontPx}px sans-serif`;
+  const textWidth=ctx.measureText(text).width; ctx.restore();
+  const width=(textWidth+padX*2)/ui.view.zoom, height=boxH/ui.view.zoom;
+  if(opts.bounds){
+    if(Number(opts.bounds.w)>=width) x=clamp(x,width/2,Number(opts.bounds.w)-width/2);
+    if(Number(opts.bounds.h)>=height) y=clamp(y,height/2,Number(opts.bounds.h)-height/2);
+  }
+  return {x,y,left:x-width/2,top:y-height/2,right:x+width/2,bottom:y+height/2,width,height,textWidth,fontPx,padX,boxH};
+}
+function wireRectOverlapArea(a,b){
+  return Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left))*Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
+}
+function wireDeviceAvoidRects(floor,labelScale){
+  const zoom=ui.view.zoom||1;
+  return (floor.devices||[]).map(dv=>{
+    const annotated=!!deviceAnnotation(dv);
+    const halfW=(annotated?90:34)*labelScale/zoom;
+    const top=dv.y-28*labelScale/zoom, bottom=dv.y+(annotated?92:52)*labelScale/zoom;
+    return {left:dv.x-halfW,right:dv.x+halfW,top,bottom};
+  });
+}
+function drawWireSegmentLabels(ctx, wire, floor, color, opts, placedRects){
+  opts=opts||{};
+  const labelScale=Number.isFinite(Number(opts.labelScale)) && Number(opts.labelScale)>0 ? Number(opts.labelScale) : 1;
+  placedRects=placedRects||[];
+  for(const seg of wireSegmentMeasurements(wire.pts, floor.scale && floor.scale.mPerPx)){
+    const dx=seg.end.x-seg.start.x, dy=seg.end.y-seg.start.y;
+    const len=Math.hypot(dx,dy), sign=seg.index%2 ? 1 : -1;
+    const nx=len ? -dy/len : 0, ny=len ? dx/len : -1;
+    const midX=(seg.start.x+seg.end.x)/2, midY=(seg.start.y+seg.end.y)/2;
+    const offsets=[14*sign,-14*sign,38*sign,-38*sign,62*sign,-62*sign].map(v=>v*labelScale/ui.view.zoom);
+    let best=null, bestScore=Infinity, bestOffset=offsets[0];
+    for(const offset of offsets){
+      const layout=wireLabelLayout(ctx,midX+nx*offset,midY+ny*offset,seg.label,{labelScale,bounds:opts.bounds});
+      const score=placedRects.reduce((sum,rect)=>sum+wireRectOverlapArea(layout,rect),0);
+      if(score<bestScore){best=layout;bestScore=score;bestOffset=offset;}
+      if(score===0) break;
+    }
+    if(Math.abs(bestOffset)>15*labelScale/ui.view.zoom){
+      ctx.save(); ctx.beginPath(); ctx.moveTo(midX,midY); ctx.lineTo(best.x,best.y);
+      ctx.strokeStyle=safeColor(color); ctx.lineWidth=Math.max(.75,labelScale*.5)/ui.view.zoom; ctx.stroke(); ctx.restore();
+    }
+    drawWireMeasurementLabel(ctx,best.x,best.y,seg.label,color,{labelScale,layout:best});
+    placedRects.push(best);
+  }
+}
+function drawWireMeasurementLabel(ctx,x,y,text,borderColor,opts){
+  opts=opts||{};
+  const labelScale=Number.isFinite(Number(opts.labelScale)) && Number(opts.labelScale)>0 ? Number(opts.labelScale) : 1;
+  const layout=opts.layout||wireLabelLayout(ctx,x,y,text,opts);
+  const {fontPx,padX,boxH,textWidth:width}=layout;
+  ctx.save();
+  ctx.translate(layout.x,layout.y); ctx.scale(1/ui.view.zoom,1/ui.view.zoom);
+  ctx.font=`700 ${fontPx}px sans-serif`;
+  ctx.fillStyle='rgba(255,255,255,.96)';
+  ctx.strokeStyle=safeColor(borderColor||'#64748b'); ctx.lineWidth=Math.max(1,labelScale*.65);
+  ctx.beginPath(); ctx.rect(-width/2-padX,-boxH/2,width+padX*2,boxH); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#172033'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(text,0,1);
+  ctx.restore();
+}
+function drawSelectedWireHandles(ctx, wire){
+  const size=8/ui.view.zoom;
+  ctx.save();
+  ctx.fillStyle='#fff'; ctx.strokeStyle='#1d4ed8'; ctx.lineWidth=2/ui.view.zoom;
+  wire.pts.forEach((p,index)=>{
+    ctx.beginPath();
+    if(index===0 || index===wire.pts.length-1) ctx.rect(p.x-size/2,p.y-size/2,size,size);
+    else ctx.arc(p.x,p.y,size/2,0,Math.PI*2);
+    ctx.fill(); ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function drawWires(ctx, floor, opts){
+  opts = opts || {};
+  const showLengths = typeof opts.showLengths==='boolean'
+    ? opts.showLengths
+    : !!(project.drawingOptions && project.drawingOptions.showWireLengths);
+  const labelScale=Number.isFinite(Number(opts.labelScale)) && Number(opts.labelScale)>0 ? Number(opts.labelScale) : 1;
+  const placedLabelRects=showLengths ? wireDeviceAvoidRects(floor,labelScale) : [];
   for(const w of floor.wires){
     const master = project.pricing.wires[w.type];
     const color = master ? master.color : '#888';
@@ -2242,6 +2409,8 @@ function drawWires(ctx, floor){
     ctx.stroke();
     ctx.fillStyle = color;
     for(const p of w.pts){ ctx.beginPath(); ctx.arc(p.x,p.y,3/ui.view.zoom,0,Math.PI*2); ctx.fill(); }
+    if(showLengths) drawWireSegmentLabels(ctx, w, floor, color, opts, placedLabelRects);
+    if(selected) drawSelectedWireHandles(ctx, w);
   }
 }
 
@@ -2417,9 +2586,9 @@ function drawPhotoFrames(ctx, floor, opts){
   if(!ui.showPhotos) return;
   const zoom = ui.view.zoom;
   const k = opts.scaleK||1;
-  const labels = NEXT_PURE.cameraLabels(floor);
+  const labels = deviceLabels(floor);
   for(const dv of floor.devices){
-    if(!isCameraDevice(dv)) continue;
+    if(!photoFrameVisible(dv)) continue;
     const photo = getPhoto(dv.photoId);
     if(opts.onlyWithPhoto && !photo) continue;
     const r = photoFrameRect(dv, zoom, k);
@@ -2480,7 +2649,7 @@ function hitPhotoResizeHandle(floor, pt){
   const thresh = 12/ui.view.zoom;
   for(let i=floor.devices.length-1;i>=0;i--){
     const dv = floor.devices[i];
-    if(!isCameraDevice(dv) || !getPhoto(dv.photoId)) continue;
+    if(!getPhoto(dv.photoId)) continue;
     const r = photoFrameRect(dv, ui.view.zoom);
     if(Math.hypot(pt.x-(r.x+r.w), pt.y-(r.y+r.h)) <= thresh) return dv;
   }
@@ -2490,7 +2659,7 @@ function hitPhotoFrame(floor, pt){
   if(!ui.showPhotos) return null;
   for(let i=floor.devices.length-1;i>=0;i--){
     const dv = floor.devices[i];
-    if(!isCameraDevice(dv)) continue;
+    if(!photoFrameVisible(dv)) continue;
     const r = photoFrameRect(dv, ui.view.zoom);
     if(pt.x>=r.x && pt.x<=r.x+r.w && pt.y>=r.y && pt.y<=r.y+r.h) return dv;
   }
@@ -2535,6 +2704,7 @@ function drawWorldLabel(ctx, x, y, text, color){
 function drawDrawingPreview(ctx, floor){
   if(!ui.drawing) return;
   const pts = ui.drawing.pts;
+  const guide = drawingGuidePoint(ui.drawing, ui.lastPointerWorld, ui.wireShiftDown);
   const master = ui.drawing.mode==='wire' ? project.pricing.wires[ui.drawing.type] : null;
   const color = ui.drawing.mode==='wall' ? '#171b26' : (master?master.color:'#e02434');
   ctx.save();
@@ -2545,7 +2715,7 @@ function drawDrawingPreview(ctx, floor){
   if(pts.length>0){
     ctx.moveTo(pts[0].x, pts[0].y);
     for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y);
-    ctx.lineTo(ui.lastPointerWorld.x, ui.lastPointerWorld.y);
+    ctx.lineTo(guide.x, guide.y);
   }
   ctx.setLineDash([6/ui.view.zoom,4/ui.view.zoom]);
   ctx.stroke();
@@ -2553,11 +2723,11 @@ function drawDrawingPreview(ctx, floor){
   for(const p of pts){ ctx.beginPath(); ctx.arc(p.x,p.y,3.5/ui.view.zoom,0,Math.PI*2); ctx.fillStyle=color; ctx.fill(); }
   ctx.restore();
   if(pts.length>0){
-    const all = pts.concat([ui.lastPointerWorld]);
+    const all = pts.concat([guide]);
     const lenPx = NEXT_PURE.polylineLength(all);
-    const mPerPx = floor.scale.mPerPx;
-    const label = mPerPx!=null ? `${(lenPx*mPerPx).toFixed(2)}m` : `${Math.round(lenPx)}px`;
-    const tip = ui.lastPointerWorld;
+    const mPerPx = validWireScale(floor.scale.mPerPx);
+    const label = mPerPx!=null ? formatWireMeasurement(lenPx*mPerPx,'m') : `${formatWireMeasurement(lenPx,'px')} (縮尺未設定)`;
+    const tip = guide;
     drawWorldLabel(ctx, tip.x, tip.y-16/ui.view.zoom, label, color);
   }
 }
@@ -2582,22 +2752,60 @@ function render(){
   drawPhotoFrames(ctx, floor);
   drawScaleUI(ctx, floor);
   drawDrawingPreview(ctx, floor);
+  // 選択中の線のハンドルは機器・写真より手前に置き、重なった端点も掴めるようにする。
+  if(ui.mode==='select' && ui.sel?.kind==='wire' && floor.wires.includes(ui.sel.ref))drawSelectedWireHandles(ctx,ui.sel.ref);
   ctx.restore();
 }
 
 // 画面とハンドブックで同じ番号を使う。通常の見積書・提案書の描画経路は変更しない。
-function drawDeviceNumberLabels(ctx, floor){
-  const labels=deviceLabels(floor), zoom=ui.view.zoom;
+function drawDeviceNumberLabels(ctx, floor, bounds){
+  const labels=deviceLabels(floor), zoom=ui.view.zoom/(bounds?2:1);
   ctx.save();
   ctx.font=`600 ${10/zoom}px sans-serif`;
   ctx.textAlign='center';ctx.textBaseline='middle';
   for(const dv of floor.devices){
     const text=labels[dv.id]||'', w=Math.max(25,ctx.measureText(text).width*zoom+12)/zoom,h=18/zoom;
-    const x=dv.x, y=dv.y+27/zoom;
+    const x=bounds?clamp(dv.x,w/2,Math.max(w/2,bounds.w-w/2)):dv.x;
+    const y=bounds?clamp(dv.y+27/zoom,h/2,Math.max(h/2,bounds.h-h/2)):dv.y+27/zoom;
     roundedRectPath(ctx,x-w/2,y-h/2,w,h,4/zoom);
     ctx.fillStyle='#ffffff';ctx.fill();ctx.strokeStyle='#b7cabc';ctx.lineWidth=1/zoom;ctx.stroke();
     ctx.fillStyle='#315d49';ctx.fillText(text,x,y);
+    drawDeviceAnnotation(ctx,dv,{bounds});
   }
+  ctx.restore();
+}
+
+function deviceAnnotation(dv){ return String(dv?.annotation==null?'':dv.annotation).trim(); }
+function photoFrameVisible(dv){
+  // 未設定枠を全機器に並べて図面を隠さない。選択機器はすぐ写真を追加できる。
+  return !!getPhoto(dv.photoId) || (ui.sel?.kind==='device' && ui.sel.ref===dv);
+}
+function canvasTextLines(ctx,text,maxWidth){
+  const lines=[];let line='';
+  for(const ch of Array.from(String(text))){
+    if(ch==='\n'){lines.push(line);line='';continue;}
+    if(line && ctx.measureText(line+ch).width>maxWidth){lines.push(line);line=ch;}else line+=ch;
+  }
+  if(line)lines.push(line);
+  return lines;
+}
+function drawDeviceAnnotation(ctx,dv,opts){
+  const text=deviceAnnotation(dv);if(!text)return;
+  opts=opts||{};
+  const zoom=ui.view.zoom||1, size=opts.handbook?26:(opts.bounds?22:11), pad=(opts.bounds?8:5)/zoom;
+  ctx.save();
+  ctx.font=`600 ${size/zoom}px -apple-system,'Hiragino Sans','Yu Gothic UI',sans-serif`;
+  const available=opts.bounds?Math.max(20/zoom,opts.bounds.w-2*pad):Infinity;
+  const maxWidth=Math.min((opts.bounds?330:180)/zoom,available);
+  const lines=canvasTextLines(ctx,text,Math.max(1,maxWidth-2*pad));
+  const width=Math.min(maxWidth,Math.max(...lines.map(t=>ctx.measureText(t).width),0)+2*pad);
+  const lineH=(size+4)/zoom,height=lines.length*lineH+2*pad;
+  let x=dv.x-width/2,y=dv.y+(opts.handbook?35:(opts.bounds?78:39))/zoom;
+  if(opts.bounds){x=clamp(x,0,Math.max(0,opts.bounds.w-width));y=clamp(y,0,Math.max(0,opts.bounds.h-height));}
+  roundedRectPath(ctx,x,y,width,height,4/zoom);ctx.fillStyle='rgba(255,255,255,.96)';ctx.fill();
+  ctx.strokeStyle='#abc2b4';ctx.lineWidth=1/zoom;ctx.stroke();
+  ctx.fillStyle='#244738';ctx.textAlign='left';ctx.textBaseline='middle';
+  lines.forEach((line,i)=>ctx.fillText(line,x+pad,y+pad+(i+.5)*lineH));
   ctx.restore();
 }
 
@@ -2642,6 +2850,16 @@ function hitPolyline(list, pt, thresh){
 }
 function hitWire(floor, pt){ return hitPolyline(floor.wires, pt, 9/ui.view.zoom); }
 function hitWall(floor, pt){ return hitPolyline(floor.walls, pt, 9/ui.view.zoom); }
+function hitSelectedWireHandle(pt, pointerType){
+  const wire = ui.sel && ui.sel.kind==='wire' ? ui.sel.ref : null;
+  const floor = currentFloor();
+  if(!wire || !floor || !floor.wires.includes(wire)) return null;
+  const threshold = (pointerType==='touch' ? 18 : 11)/ui.view.zoom;
+  for(let i=wire.pts.length-1;i>=0;i--){
+    if(Math.hypot(wire.pts[i].x-pt.x, wire.pts[i].y-pt.y)<=threshold) return { wire, index:i };
+  }
+  return null;
+}
 
 function hitDeviceHandle(dv, floor, pt){
   if(!dv) return null;
@@ -2660,7 +2878,7 @@ function hitDeviceHandle(dv, floor, pt){
 function setMode(mode, tool){
   ui.mode = mode; ui.tool = tool||null;
   ui.scaleTemp = null;
-  ui.drawing = (mode==='wire'||mode==='wall') ? { mode, type:tool, pts:[] } : null;
+  ui.drawing = (mode==='wire'||mode==='wall') ? { mode, type:tool, pts:[], redoPts:[] } : null;
   if(mode!=='select') ui.sel = null;
   refreshAll();
 }
@@ -2708,6 +2926,7 @@ function onPointerDown(e){
   state.pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
   const world = eventToWorld(e.clientX, e.clientY);
   ui.lastPointerWorld = world;
+  if(ui.mode==='wire'||ui.mode==='wall') ui.wireShiftDown=!!e.shiftKey;
 
   if(state.pointers.size===2){
     const pts = [...state.pointers.values()];
@@ -2755,11 +2974,7 @@ function onPointerDown(e){
     return;
   }
   if(ui.mode==='wire' || ui.mode==='wall'){
-    let pt = world;
-    if(e.shiftKey && ui.drawing.pts.length>0){
-      pt = snapOrtho(ui.drawing.pts[ui.drawing.pts.length-1], pt);
-    }
-    state.dragInfo = { type:'tap-pending', pendingMode:ui.mode, world:pt, startClient:{ x:e.clientX, y:e.clientY } };
+    state.dragInfo = { type:'tap-pending', pendingMode:ui.mode, world, shiftKey:e.shiftKey, startClient:{ x:e.clientX, y:e.clientY } };
     return;
   }
   if(ui.mode==='scale'){
@@ -2768,6 +2983,14 @@ function onPointerDown(e){
   }
 
   // select モード
+  // 選択済み配線の頂点は機器位置と重なるのが通常なので、写真・機器より先にハンドルを判定する。
+  const wireHandle = hitSelectedWireHandle(world, e.pointerType);
+  if(wireHandle){
+    state.dragInfo = { type:'move-wire-point', ownerProject:project, floor, wire:wireHandle.wire, index:wireHandle.index,
+      basePts:wireHandle.wire.pts.map(p=>({x:p.x,y:p.y})), startClient:{x:e.clientX,y:e.clientY}, historyPushed:false };
+    els.cv.style.cursor='grabbing';
+    return;
+  }
   if(ui.sel && ui.sel.kind==='device'){
     const h = hitDeviceHandle(ui.sel.ref, floor, world);
     if(h){
@@ -2809,7 +3032,16 @@ function onPointerDown(e){
     return;
   }
   const wr = hitWire(floor, world);
-  if(wr){ selectObj('wire', wr); state.dragInfo = null; return; }
+  if(wr){
+    if(ui.sel && ui.sel.kind==='wire' && ui.sel.ref===wr){
+      state.dragInfo = { type:'move-wire', ownerProject:project, floor, wire:wr, startWorld:world,
+        basePts:wr.pts.map(p=>({x:p.x,y:p.y})), startClient:{x:e.clientX,y:e.clientY}, historyPushed:false };
+      els.cv.style.cursor='grabbing';
+    } else {
+      selectObj('wire', wr); state.dragInfo = null;
+    }
+    return;
+  }
   const wl = hitWall(floor, world);
   if(wl){ selectObj('wall', wl); state.dragInfo = null; return; }
 
@@ -2821,12 +3053,49 @@ function snapOrtho(prev, pt){
   const dx = Math.abs(pt.x-prev.x), dy = Math.abs(pt.y-prev.y);
   return dx>dy ? { x:pt.x, y:prev.y } : { x:prev.x, y:pt.y };
 }
+function snapAngle45(prev, pt){
+  const dx=pt.x-prev.x, dy=pt.y-prev.y;
+  const distance=Math.hypot(dx,dy);
+  if(distance===0) return {x:prev.x,y:prev.y};
+  const angle=Math.round(Math.atan2(dy,dx)/(Math.PI/4))*(Math.PI/4);
+  return { x:prev.x+Math.cos(angle)*distance, y:prev.y+Math.sin(angle)*distance };
+}
+function snapDrawingPoint(prev, pt, mode, shiftDown){
+  if(!prev) return {x:pt.x,y:pt.y};
+  const effective = shiftDown ? 'ortho' : (mode==='ortho'||mode==='45' ? mode : 'free');
+  if(effective==='ortho') return snapOrtho(prev,pt);
+  if(effective==='45') return snapAngle45(prev,pt);
+  return {x:pt.x,y:pt.y};
+}
+function drawingGuidePoint(drawing, rawPoint, shiftDown){
+  if(!drawing || !drawing.pts || !drawing.pts.length) return {x:rawPoint.x,y:rawPoint.y};
+  return snapDrawingPoint(drawing.pts[drawing.pts.length-1], rawPoint, ui.wireSnapMode, shiftDown);
+}
+function pushWireDragHistory(di){
+  if(di.historyPushed) return;
+  const moved=Math.hypot(di.lastClientX-di.startClient.x,di.lastClientY-di.startClient.y);
+  if(moved<0.5) return;
+  pushHistory();
+  di.historyPushed=true;
+}
+function validWireDrag(di){
+  const floor=currentFloor();
+  return project===di.ownerProject && floor===di.floor && Array.isArray(floor.wires) && floor.wires.includes(di.wire)
+    && ui.sel && ui.sel.kind==='wire' && ui.sel.ref===di.wire;
+}
+function updateWireEditCursor(world, pointerType){
+  if(ui.mode!=='select'){ els.cv.style.cursor=''; return; }
+  if(hitSelectedWireHandle(world,pointerType)){ els.cv.style.cursor='crosshair'; return; }
+  const wire=ui.sel && ui.sel.kind==='wire' ? ui.sel.ref : null;
+  els.cv.style.cursor=wire && hitPolyline([wire],world,9/ui.view.zoom) ? 'grab' : '';
+}
 
 function onPointerMove(e){
   if(!state.pointers.has(e.pointerId) && e.pointerType!=='mouse') return;
   if(state.pointers.has(e.pointerId)) state.pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
   const world = eventToWorld(e.clientX, e.clientY);
   ui.lastPointerWorld = world;
+  if(ui.mode==='wire'||ui.mode==='wall') ui.wireShiftDown=!!e.shiftKey;
 
   if(state.dragInfo && state.dragInfo.type==='pinch' && state.pointers.size===2){
     const pts = [...state.pointers.values()];
@@ -2845,7 +3114,7 @@ function onPointerMove(e){
 
   if((ui.mode==='wire'||ui.mode==='wall'||ui.mode==='scale') ){ scheduleRender(); return; }
 
-  if(!state.dragInfo){ return; }
+  if(!state.dragInfo){ updateWireEditCursor(world,e.pointerType); return; }
   const floor = currentFloor();
   const di = state.dragInfo;
   if(di.type==='pan'){
@@ -2858,6 +3127,21 @@ function onPointerMove(e){
   } else if(di.type==='move-riser'){
     di.rs.x = world.x - di.offset.x; di.rs.y = world.y - di.offset.y;
     scheduleRender();
+  } else if(di.type==='move-wire-point'){
+    if(!validWireDrag(di)){ state.dragInfo=null; els.cv.style.cursor=''; return; }
+    di.lastClientX=e.clientX; di.lastClientY=e.clientY; pushWireDragHistory(di);
+    if(!di.historyPushed) return;
+    const anchorIndex=di.index>0 ? di.index-1 : (di.basePts.length>1 ? 1 : -1);
+    const anchor=anchorIndex>=0 ? di.basePts[anchorIndex] : null;
+    di.wire.pts[di.index]=snapDrawingPoint(anchor,world,ui.wireSnapMode,e.shiftKey||ui.wireShiftDown);
+    els.cv.style.cursor='grabbing'; scheduleRender();
+  } else if(di.type==='move-wire'){
+    if(!validWireDrag(di)){ state.dragInfo=null; els.cv.style.cursor=''; return; }
+    di.lastClientX=e.clientX; di.lastClientY=e.clientY; pushWireDragHistory(di);
+    if(!di.historyPushed) return;
+    const dx=world.x-di.startWorld.x, dy=world.y-di.startWorld.y;
+    di.wire.pts=di.basePts.map(p=>({x:p.x+dx,y:p.y+dy}));
+    els.cv.style.cursor='grabbing'; scheduleRender();
   } else if(di.type==='move-photo'){
     const dv = di.dv;
     dv.photoBox = { dx:(world.x-di.offset.x)-dv.x, dy:(world.y-di.offset.y)-dv.y };
@@ -2921,6 +3205,7 @@ function onPointerUp(e){
       refreshAll();
     }
     state.dragInfo = null;
+    els.cv.style.cursor='';
   }
 }
 
@@ -2931,8 +3216,10 @@ function commitTapPending(di){
     placeRiser(ui.tool, di.world);
   } else if(di.pendingMode==='wire' || di.pendingMode==='wall'){
     if(!ui.drawing) return;
-    ui.drawing.pts.push(di.world);
-    scheduleRender();
+    const pt=drawingGuidePoint(ui.drawing,di.world,ui.wireShiftDown);
+    ui.drawing.pts.push(pt);
+    ui.drawing.redoPts=[];
+    syncDrawingUi();
   } else if(di.pendingMode==='scale'){
     if(!ui.scaleTemp) ui.scaleTemp = [];
     ui.scaleTemp.push(di.world);
@@ -2976,13 +3263,14 @@ function confirmDrawing(){
     floor.walls.push({ id:uid(), pts:ui.drawing.pts.slice() });
   }
   const mode = ui.drawing.mode, type = ui.drawing.type;
-  ui.drawing = { mode, type, pts:[] };
+  ui.drawing = { mode, type, pts:[], redoPts:[] };
   refreshAll();
 }
 function stepBackDrawing(){
   if(!ui.drawing || ui.drawing.pts.length===0) return;
-  ui.drawing.pts.pop();
-  scheduleRender();
+  if(!Array.isArray(ui.drawing.redoPts)) ui.drawing.redoPts=[];
+  ui.drawing.redoPts.push(ui.drawing.pts.pop());
+  syncDrawingUi();
 }
 function cancelDrawing(){
   exitMode();
@@ -3141,7 +3429,7 @@ function trayDeviceHtml(){
   return `<div class="inspectorTabs" role="group" aria-label="機器パネルの表示"><button data-action="devicePanel" data-panel="catalog" class="${ui.devicePanel!=='list'?'active':''}" aria-pressed="${ui.devicePanel!=='list'}">機器を追加</button><button data-action="devicePanel" data-panel="list" class="${ui.devicePanel==='list'?'active':''}" aria-pressed="${ui.devicePanel==='list'}">配置済み ${floor.devices.length}台</button></div>
     <div class="traySection devicePanel" ${ui.devicePanel==='list'?'hidden':''}><div class="trayLabel">機器を選んで配置</div><div class="devGrid">${cards}</div><div class="sectionNote">続けてタップすると連続配置できます。終了は図面上の × または Esc。</div></div>
     <div class="traySection devicePanel" ${ui.devicePanel==='list'?'':'hidden'}><div class="trayLabel">配置済みの機器 / ${floor.devices.length}台</div>
-      <input class="searchField" id="deviceSearch" type="search" aria-label="配置済み機器を検索" placeholder="番号・場所・型番で探す" value="${escapeHtml(ui.deviceQuery||'')}">
+      <input class="searchField" id="deviceSearch" type="search" aria-label="配置済み機器を検索" placeholder="番号・注釈・場所・型番で探す" value="${escapeHtml(ui.deviceQuery||'')}">
       <div class="deviceList" id="deviceList">${deviceListHtml()}</div>
       <div class="sectionNote">一覧から選ぶと詳細を編集できます。機器情報はハンドブックにも反映されます。</div>
     </div>`;
@@ -3150,13 +3438,14 @@ function trayDeviceHtml(){
 function deviceListHtml(){
   const floor = currentFloor(), labels = deviceLabels(floor);
   const query = String(ui.deviceQuery||'').trim().toLocaleLowerCase();
-  const devices = floor.devices.filter(d=>[labels[d.id],project.pricing.devices[d.type]?.label,d.location,d.model,d.ipAddress,d.serialNumber].some(v=>String(v||'').toLocaleLowerCase().includes(query)));
+  const devices = floor.devices.filter(d=>[labels[d.id],deviceAnnotation(d),project.pricing.devices[d.type]?.label,d.location,d.model,d.ipAddress,d.serialNumber].some(v=>String(v||'').toLocaleLowerCase().includes(query)));
   if(!devices.length) return `<div class="listEmpty">${floor.devices.length?'該当する機器がありません。':'機器を配置すると、ここに一覧が表示されます。'}</div>`;
-  return devices.map(d=>`<button class="deviceListRow ${ui.sel?.ref===d?'active':''}" data-action="selectDevice" data-id="${escapeHtml(d.id)}"><span class="deviceNo">${escapeHtml(labels[d.id])}</span><span class="deviceListText"><strong>${escapeHtml(d.location||project.pricing.devices[d.type]?.label||d.type)}</strong><small>${escapeHtml(d.model|| (d.location?project.pricing.devices[d.type]?.label:'設置場所・機器情報を入力'))}</small></span>${ic('edit')}</button>`).join('');
+  return devices.map(d=>`<button class="deviceListRow ${ui.sel?.ref===d?'active':''}" data-action="selectDevice" data-id="${escapeHtml(d.id)}"><span class="deviceNo">${escapeHtml(labels[d.id])}</span><span class="deviceListText"><strong>${escapeHtml(deviceAnnotation(d)||d.location||project.pricing.devices[d.type]?.label||d.type)}</strong><small>${escapeHtml(d.model||d.location||project.pricing.devices[d.type]?.label||'設置場所・機器情報を入力')}</small></span>${ic('edit')}</button>`).join('');
 }
 
 function trayWireHtml(){
   const floor = currentFloor();
+  const drawingOptions = project.drawingOptions || {showWireLengths:false,exportWireLengths:false};
   const wireCards = Object.entries(project.pricing.wires).map(([key,m])=>{
     const lenPx = floor.wires.filter(w=>w.type===key).reduce((s,w)=>s+NEXT_PURE.polylineLength(w.pts),0);
     const lenM = floor.scale.mPerPx!=null ? lenPx*floor.scale.mPerPx : null;
@@ -3182,8 +3471,20 @@ function trayWireHtml(){
   const wallLen = floor.walls.reduce((s,w)=>s+NEXT_PURE.polylineLength(w.pts),0);
   return `
     <div class="traySection">
+      <div class="trayLabel">作図スナップ</div>
+      <div class="segCtrl wireSnapCtrl" role="group" aria-label="配線と壁の作図方向">
+        ${[['free','自由'],['ortho','水平垂直'],['45','45度']].map(([mode,label])=>`<button type="button" data-wire-snap="${mode}" class="${ui.wireSnapMode===mode?'active':''}" aria-pressed="${ui.wireSnapMode===mode}">${label}</button>`).join('')}
+      </div>
+      <div class="sectionNote">Shiftを押している間は水平・垂直に固定します。</div>
+    </div>
+    <div class="traySection">
       <div class="trayLabel">配線</div>
       ${wireCards}
+    </div>
+    <div class="traySection">
+      <div class="trayLabel">区間長ラベル</div>
+      <div class="wireSettingRow"><div class="wireSettingText">画面表示<small>図面編集画面に各区間の実長を表示</small></div><div class="segCtrl" role="group" aria-label="画面の配線区間長"><button type="button" data-wire-length="screen-off" class="${drawingOptions.showWireLengths?'':'active'}">OFF</button><button type="button" data-wire-length="screen-on" class="${drawingOptions.showWireLengths?'active':''}">ON</button></div></div>
+      <div class="wireSettingRow"><div class="wireSettingText">資料へ反映<small>見積・提案・ハンドブックの図面に表示</small></div><div class="segCtrl" role="group" aria-label="資料の配線区間長"><button type="button" data-wire-length="export-off" class="${drawingOptions.exportWireLengths?'':'active'}">OFF</button><button type="button" data-wire-length="export-on" class="${drawingOptions.exportWireLengths?'active':''}">ON</button></div></div>
     </div>
     <div class="traySection">
       <div class="trayLabel">付帯工事</div>
@@ -3308,6 +3609,23 @@ function initTrayEvents(){
       }
       return;
     }
+    const snapBtn = e.target.closest('[data-wire-snap]');
+    if(snapBtn){
+      ui.wireSnapMode = ['ortho','45'].includes(snapBtn.dataset.wireSnap) ? snapBtn.dataset.wireSnap : 'free';
+      renderTray(); renderModeChip(); scheduleRender();
+      return;
+    }
+    const lengthBtn = e.target.closest('[data-wire-length]');
+    if(lengthBtn){
+      if(!project.drawingOptions) project.drawingOptions={showWireLengths:false,exportWireLengths:false};
+      const value=lengthBtn.dataset.wireLength;
+      if(value==='screen-on'||value==='screen-off') project.drawingOptions.showWireLengths=value==='screen-on';
+      else if(value==='export-on'||value==='export-off') project.drawingOptions.exportWireLengths=value==='export-on';
+      else return;
+      refreshAll();
+      toast(value.startsWith('screen') ? `画面の区間長表示を${value.endsWith('on')?'ON':'OFF'}にしました` : `資料の区間長表示を${value.endsWith('on')?'ON':'OFF'}にしました`, 'ok');
+      return;
+    }
     const pmBtn = e.target.closest('[data-pricemode]');
     if(pmBtn){
       const mode = pmBtn.dataset.pricemode==='useOnly' ? 'useOnly' : 'full';
@@ -3419,10 +3737,11 @@ function initTrayEvents(){
 /* ---- カメラ実写画像の取込(ファイル参照) ----
    iPhone/iPadでは <input type="file" accept="image/*"> から「写真ライブラリ」「カメラで撮影」の
    どちらも選べるため、専用のカメラAPIは使わずファイル参照1本に統一している */
-let pendingPhotoDeviceId = null;
+let pendingPhotoTarget = null;
+const photoImportTokens = new WeakMap();
 function pickPhotoForDevice(dv){
   if(!dv) return;
-  pendingPhotoDeviceId = dv.id;
+  pendingPhotoTarget = {project, floor:currentFloor(), device:dv};
   els.photoInput.value = '';
   els.photoInput.click();
 }
@@ -3440,42 +3759,50 @@ function shrinkImageToDataUrl(img, maxEdge, quality){
   cx.drawImage(img, 0, 0, w, h);
   return { dataUrl:c.toDataURL('image/jpeg', quality), w, h };
 }
+function readLocalFile(file, asText){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(reader.result);
+    reader.onerror=()=>reject(new Error('ファイルを読み込めませんでした'));
+    if(asText)reader.readAsText(file);else reader.readAsDataURL(file);
+  });
+}
+function decodeLocalImage(src){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();img.onload=()=>resolve(img);
+    img.onerror=()=>reject(new Error('この画像を読み込めません。JPEG・PNGなどで保存し直してください'));
+    img.src=src;
+  });
+}
+async function importDevicePhoto(file,target){
+  if(!file || !target?.device)return false;
+  const {floor,device:dv}=target, token={};
+  photoImportTokens.set(dv,token);
+  try{
+    const img=await decodeLocalImage(await readLocalFile(file,false));
+    // 読込中の案件切替・フロア切替・削除・Undo・連続差し替えで別機器へ紐付けない。
+    if(photoImportTokens.get(dv)!==token)return false;
+    if(project!==target.project || currentFloor()!==floor || !floor.devices.includes(dv)){
+      toast('対象の案件・フロア・機器が変わったため、画像の追加を中止しました','warn');return false;
+    }
+    const shrunk=shrinkImageToDataUrl(img,PHOTO_MAX_EDGE,PHOTO_JPEG_QUALITY);
+    pushHistory();
+    if(!project.photos)project.photos={};
+    const pid=uid();project.photos[pid]={src:shrunk.dataUrl,name:file.name||'貼り付け画像',w:shrunk.w,h:shrunk.h};
+    dv.photoId=pid;
+    if(!dv.photoBox)dv.photoBox=defaultPhotoOffsetFor(dv,floor);
+    if(!ui.showPhotos){ui.showPhotos=true;savePhotoPref();updatePhotoToggleBtn();}
+    refreshAll();toast('機器の写真を追加しました','ok');return true;
+  }catch(error){toast('画像の取込に失敗しました: '+error.message,'warn');return false;}
+}
 function onPhotoChosen(){
-  const file = els.photoInput.files && els.photoInput.files[0];
-  const devId = pendingPhotoDeviceId;
-  pendingPhotoDeviceId = null;
-  if(!file) return;
-  const floor = currentFloor();
-  const dv = floor && floor.devices.find(d=>d.id===devId);
-  if(!dv){ toast('対象のカメラが見つかりません', 'warn'); return; }
-  const reader = new FileReader();
-  reader.onload = ()=>{
-    const img = new Image();
-    img.onload = ()=>{
-      try{
-        const shrunk = shrinkImageToDataUrl(img, PHOTO_MAX_EDGE, PHOTO_JPEG_QUALITY);
-        pushHistory();
-        if(!project.photos) project.photos = {};
-        const pid = uid();
-        project.photos[pid] = { src:shrunk.dataUrl, name:file.name||'', w:shrunk.w, h:shrunk.h };
-        dv.photoId = pid;
-        if(!dv.photoBox) dv.photoBox = defaultPhotoOffsetFor(dv, floor);
-        if(!ui.showPhotos){ ui.showPhotos = true; savePhotoPref(); updatePhotoToggleBtn(); }
-        refreshAll();
-        toast('実写画像を挿入しました', 'ok');
-      }catch(err){
-        console.error('実写画像の取込に失敗しました', err);
-        toast('実写画像の取込に失敗しました: '+(err&&err.message||err), 'warn');
-      }
-    };
-    img.onerror = ()=>toast('画像を読み込めませんでした', 'warn');
-    img.src = reader.result;
-  };
-  reader.onerror = ()=>toast('ファイルを読み込めませんでした', 'warn');
-  reader.readAsDataURL(file);
+  const file=els.photoInput.files && els.photoInput.files[0],target=pendingPhotoTarget;
+  pendingPhotoTarget=null;
+  return importDevicePhoto(file,target);
 }
 function clearPhotoOfDevice(dv){
   if(!dv || !dv.photoId) return;
+  photoImportTokens.delete(dv);
   pushHistory();
   // 実体(project.photos)は消さない。undoで参照が復活しうるため(全リセット時にまとめて破棄される)
   delete dv.photoId;
@@ -3577,8 +3904,11 @@ function renderModeChip(){
     const floor = currentFloor();
     const pts = ui.drawing ? ui.drawing.pts : [];
     const lenPx = NEXT_PURE.polylineLength(pts);
-    const label = floor.scale.mPerPx!=null ? `${(lenPx*floor.scale.mPerPx).toFixed(2)}m` : `${Math.round(lenPx)}px`;
+    const mPerPx=validWireScale(floor.scale.mPerPx);
+    const label = mPerPx!=null ? formatWireMeasurement(lenPx*mPerPx,'m') : `${formatWireMeasurement(lenPx,'px')} (縮尺未設定)`;
     els.liveDist.textContent = pts.length>0 ? `累計 ${label}` : '頂点をタップ';
+    els.btnStepBack.disabled = pts.length===0;
+    els.btnConfirmDraw.disabled = pts.length<2;
   }
 }
 function updateZoomLabel(){ els.zoomPct.textContent = Math.round(ui.view.zoom*100)+'%'; }
@@ -3640,6 +3970,7 @@ function inspectorDeviceHtml(dv, floor){
       <div><div class="ttl">${escapeHtml(deviceLabels(floor)[dv.id])} / ${escapeHtml(master.label)}</div><div class="sub">${escapeHtml(floor.name)} · 本体 ¥${Number(master.price||0).toLocaleString()}</div></div>
       <button class="iconBtn inspectorClose" data-action="closeInspector" aria-label="機器の詳細を閉じる">${ic('close')}</button>
     </div>
+    <div class="inspRow deviceAnnotationField"><label class="k" for="device-annotation">図面の注釈</label><input id="device-annotation" type="text" data-device-field="annotation" maxlength="80" value="${escapeHtml(deviceAnnotation(dv))}" placeholder="例：Cam01 / ラック内HUB" autocomplete="off"><div class="hint">C/E番号に併記。図面とハンドブックの一覧に反映します。</div></div>
     <div class="inspectorTabs" role="group" aria-label="機器詳細の表示"><button data-action="inspectorTab" data-tab="placement" class="${ui.inspectorTab!=='record'?'active':''}" aria-pressed="${ui.inspectorTab!=='record'}">配置調整</button><button data-action="inspectorTab" data-tab="record" class="${ui.inspectorTab==='record'?'active':''}" aria-pressed="${ui.inspectorTab==='record'}">納入情報</button></div>
     <div class="deviceFields inspectorPane" ${ui.inspectorTab==='record'?'':'hidden'}><div class="eyebrow">DEVICE RECORD / 機器情報</div>
       ${[['location','設置場所','例：正面入口',120],['model','メーカー・型番','例：メーカー名 / 型番',120],['ipAddress','IPアドレス','未入力でも出力できます',64],['serialNumber','シリアル番号','未入力でも出力できます',120]].map(([key,label,placeholder,max])=>`<div class="inspRow"><label class="k" for="device-${key}">${label}</label><input id="device-${key}" type="text" data-device-field="${key}" maxlength="${max}" value="${escapeHtml(dv[key]||'')}" placeholder="${placeholder}" autocomplete="off" spellcheck="false"></div>`).join('')}
@@ -3656,19 +3987,20 @@ function inspectorDeviceHtml(dv, floor){
       ${scaleWarn?'<div class="hint">縮尺未設定のため画面基準で表示しています</div>':''}
     </div>`;
   }
-  if(isCam){
-    // 実写画像(現地でiPhone等から撮影した映像イメージ)。図面上の枠と同じ内容を扱う
+  {
+    // カメラ映像・HUB・ルータ・ラックなど、全機器で写真を扱う。
     const ph = getPhoto(dv.photoId);
-    const camLabel = NEXT_PURE.cameraLabels(floor)[dv.id] || '';
+    const camLabel = deviceLabels(floor)[dv.id] || '';
     body += `
     <div class="inspRow"><div class="k"><span>実写画像 ${escapeHtml(camLabel)}</span><span>${ph?'設定済み':'未設定'}</span></div>
-      <div class="inspPhotoBox">${ph
+      <div class="inspPhotoBox" data-photo-drop="true">${ph
         ? `<img src="${escapeHtml(ph.src)}" alt="実写画像">`
-        : '<div class="ph">このカメラの映像イメージを<br>ファイル参照で挿入できます</div>'}</div>
+        : '<div class="ph">この機器の写真を追加<br>ここに画像をドロップできます</div>'}</div>
       <div class="inspPhotoBtns">
         <button data-action="pickPhoto">${ph?'差し替え':'画像を選択'}</button>
         ${ph?'<button class="danger" data-action="clearPhoto">画像を外す</button>':''}
       </div>
+      <div class="hint">PCでは画像のドロップ、または機器を選択してCtrl / ⌘Vで貼り付け。スマホ・タブレットは「画像を選択」から撮影・写真選択できます。</div>
       ${ph?`
       <div class="k" style="margin-top:8px;"><span>画像の表示サイズ</span><span>×${(dv.photoScale||1).toFixed(2).replace(/0$/,'')}</span></div>
       <input type="range" min="0.5" max="3" step="0.05" value="${clamp(dv.photoScale||1,0.5,3)}" data-field="photoScale">`:''}
@@ -3697,15 +4029,20 @@ function inspectorDeviceHtml(dv, floor){
   return body;
 }
 function inspectorWireHtml(w){
-  const master = project.pricing.wires[w.type];
+  const master = project.pricing.wires[w.type]||{label:w.type||'不明な配線',color:'#888',pricePerM:0};
   const floor = currentFloor();
-  const lenPx = NEXT_PURE.polylineLength(w.pts);
-  const lenM = floor.scale.mPerPx!=null ? (lenPx*floor.scale.mPerPx).toFixed(2)+'m' : Math.round(lenPx)+'px(縮尺未設定)';
+  const segments = wireSegmentMeasurements(w.pts, floor.scale.mPerPx);
+  const lenPx = segments.reduce((sum,seg)=>sum+seg.lengthPx,0);
+  const mPerPx=validWireScale(floor.scale.mPerPx);
+  const lenM = mPerPx!=null ? formatWireMeasurement(lenPx*mPerPx,'m') : `${formatWireMeasurement(lenPx,'px')} (縮尺未設定)`;
   return `
     <div class="inspHead"><span class="ic" style="background:${safeColor(master.color)}">${ic('wire')}</span>
       <div><div class="ttl">${escapeHtml(master.label)}</div><div class="sub">¥${master.pricePerM.toLocaleString()}/m</div></div></div>
     <div class="inspRow"><div class="k"><span>長さ</span></div><input type="text" value="${escapeHtml(lenM)}" readonly></div>
-    <div class="inspActions"><button class="actBtn danger" data-action="delete">${ic('trash')}<span>削除</span></button></div>`;
+    <div class="inspRow"><div class="k"><span>区間ごとの長さ</span><span>${segments.length}区間</span></div>
+      <table class="wireSegmentTable"><thead><tr><th>区間</th><th>長さ</th></tr></thead><tbody>${segments.map(seg=>`<tr><td>点${seg.index} → 点${seg.index+1}</td><td>${escapeHtml(seg.label)}</td></tr>`).join('')||'<tr><td colspan="2">区間がありません</td></tr>'}</tbody></table>
+      <div class="hint">余長や切上げを含まない、図面上の区間長です。</div></div>
+    <div class="inspActions"><button class="actBtn" data-action="duplicate">${ic('dup')}<span>複製</span></button><button class="actBtn danger" data-action="delete">${ic('trash')}<span>削除</span></button></div>`;
 }
 function inspectorWallHtml(w){
   const lenPx = NEXT_PURE.polylineLength(w.pts);
@@ -3748,10 +4085,10 @@ function initInspectorEvents(){
   });
   els.inspector.addEventListener('input', e=>{
     const field=e.target.dataset.deviceField;
-    if(field && ui.sel?.kind==='device' && ['location','model','ipAddress','serialNumber'].includes(field)){
+    if(field && ui.sel?.kind==='device' && ['annotation','location','model','ipAddress','serialNumber'].includes(field)){
       ui.sel.ref[field]=e.target.value;
       const list=document.getElementById('deviceList');if(list)list.innerHTML=deviceListHtml();
-      markDirty();return;
+      scheduleRender();markDirty();return;
     }
     const f = e.target.dataset.field;
     if(!f || !ui.sel) return;
@@ -3785,10 +4122,20 @@ function deleteSelected(){
   refreshAll();
 }
 function duplicateSelected(){
-  if(!ui.sel || ui.sel.kind!=='device') return;
+  if(!ui.sel || !['device','wire','wall','riser'].includes(ui.sel.kind)) return;
   const floor = currentFloor();
+  const kind=ui.sel.kind;
   pushHistory();
   const clone = JSON.parse(JSON.stringify(ui.sel.ref));
+  if(kind==='wire'||kind==='wall'){
+    clone.id=uid();clone.pts=clone.pts.map(p=>({x:p.x+24,y:p.y+24}));
+    floor[kind==='wire'?'wires':'walls'].push(clone);
+    ui.sel={kind,ref:clone};refreshAll();return;
+  }
+  if(kind==='riser'){
+    clone.id=uid();clone.x+=24;clone.y+=24;floor.risers.push(clone);
+    ui.sel={kind,ref:clone};refreshAll();return;
+  }
   clone.id = uid(); clone.x += 24; clone.y += 24;
   // 新しい個体へIPやシリアルを持ち越さない。型番・設置場所は編集の起点として引き継ぐ。
   delete clone.ipAddress; delete clone.serialNumber;
@@ -3856,7 +4203,7 @@ function renderMoneyBar(){
    ========================================================================= */
 function renderEmptyState(){
   const floor = currentFloor();
-  const show = !floor.img;
+  const show = !floor.img && !floor.devices.length && !floor.wires.length && !floor.walls.length && !floor.risers.length;
   els.emptyState.classList.toggle('show', show);
 }
 
@@ -3920,6 +4267,10 @@ function isEditableTarget(t){
 }
 function initKeyboard(){
   document.addEventListener('keydown', e=>{
+    if(e.key==='Shift' && (ui.mode==='wire'||ui.mode==='wall')){
+      ui.wireShiftDown=true;
+      scheduleRender();
+    }
     // 入力中の削除やモーダル内操作で、背後の図面を編集しない。
     if(document.querySelector('.modalOverlay.show, .hbOverlay'))return;
     const mod = e.metaKey || e.ctrlKey;
@@ -3951,6 +4302,21 @@ function initKeyboard(){
       else if(e.key==='ArrowRight') dv.x += step;
       scheduleRender(); markDirty();
     }
+    if(ui.sel && (ui.sel.kind==='wire'||ui.sel.kind==='wall') && e.key.startsWith('Arrow')){
+      e.preventDefault();
+      if(!e.repeat) pushHistory();
+      const step=e.shiftKey ? 10 : 2;
+      const dx=e.key==='ArrowLeft'?-step:e.key==='ArrowRight'?step:0;
+      const dy=e.key==='ArrowUp'?-step:e.key==='ArrowDown'?step:0;
+      for(const p of ui.sel.ref.pts){ p.x+=dx; p.y+=dy; }
+      renderInspector(); scheduleRender(); markDirty();
+    }
+  });
+  document.addEventListener('keyup', e=>{
+    if(e.key==='Shift' && ui.wireShiftDown){ ui.wireShiftDown=false; scheduleRender(); }
+  });
+  window.addEventListener('blur', ()=>{
+    if(ui.wireShiftDown){ ui.wireShiftDown=false; scheduleRender(); }
   });
 }
 
@@ -4039,10 +4405,12 @@ function initEmptyStateButtons(){
   els.heroPick.innerHTML = `${ic('upload')}<span>図面を読み込む / PDF・画像</span>`;
   els.heroCam.innerHTML = `${ic('camera')}<span>カメラで撮影</span>`;
   els.heroSample.innerHTML = `${ic('sample')}<span>サンプル図面で試す</span>`;
+  els.heroLoad.innerHTML = `${ic('load')}<span>保存した案件を開く / JSON</span>`;
   els.heroDemo.innerHTML = `<span class="hdRow">${ic('sample')}<span>完成例を見てみる</span></span><span class="hdCaption">配置済みのデモ案件で操作を体験</span>`;
   els.heroPick.addEventListener('click', pickImage);
   els.heroCam.addEventListener('click', captureImage);
   els.heroSample.addEventListener('click', useSampleImage);
+  els.heroLoad.addEventListener('click',()=>{els.loadFileInput.value='';els.loadFileInput.click();});
   els.heroDemo.addEventListener('click', async()=>{
     const hasWork=project.floors.some(f=>f.imgSrc||f.devices.length||f.wires.length)||project.meta.title||project.meta.customer;
     if(hasWork && !await confirmModal('デモ案件を開く','現在の作業をデモ案件に置き換えます。必要なデータは先にファイル保存してください。',{okLabel:'デモを開く'}))return;
@@ -4050,6 +4418,66 @@ function initEmptyStateButtons(){
   });
   els.fileInput.addEventListener('change', onFileChosen);
   els.photoInput.addEventListener('change', onPhotoChosen);
+  initWorkspaceImports();
+}
+
+function hasProjectWork(){
+  return project.floors.length>1 || !!(project.meta.title||project.meta.customer) ||
+    project.floors.some(f=>f.imgSrc||f.devices.length||f.wires.length||f.walls.length||f.risers.length);
+}
+function selectedPhotoTarget(){
+  return ui.sel?.kind==='device' ? {project,floor:currentFloor(),device:ui.sel.ref} : null;
+}
+function workspaceDropTarget(e){
+  if(els.inspector.contains(e.target))return selectedPhotoTarget();
+  if(e.target===els.cv){
+    const pt=eventToWorld(e.clientX,e.clientY),floor=currentFloor();
+    const device=hitDevice(floor,pt)||hitPhotoFrame(floor,pt);
+    if(device)return {project,floor,device};
+  }
+  return selectedPhotoTarget();
+}
+async function handleWorkspaceFile(file,target){
+  if(!file)return false;
+  if(/\.json$/i.test(file.name)||file.type==='application/json')return loadProjectFile(file);
+  if(target)return importDevicePhoto(file,target);
+  const owner=project,floor=currentFloor();
+  if(hasProjectWork() && !await confirmModal('図面として読み込む', '機器の写真を追加する場合はキャンセルして機器を選択してください。このファイルを現在のフロアの背景図面として読み込みます。', {okLabel:'図面にする'}))return false;
+  if(project!==owner||currentFloor()!==floor)return false;
+  try{
+    if(file.type==='application/pdf'||/\.pdf$/i.test(file.name)){await handlePdfFile(file);return true;}
+    const src=await readLocalFile(file,false);await decodeLocalImage(src);
+    if(project!==owner||currentFloor()!==floor)return false;
+    setFloorImage(src);return true;
+  }catch(error){toast(error.message,'warn');return false;}
+}
+function initWorkspaceImports(){
+  const blocked=()=>!!document.querySelector('.modalOverlay.show, .hbOverlay');
+  const inWorkspace=t=>els.canvasWrap.contains(t)||els.inspector.contains(t);
+  document.addEventListener('dragover',e=>{
+    if(!Array.from(e.dataTransfer?.types||[]).includes('Files'))return;
+    e.preventDefault();
+    if(blocked()||!inWorkspace(e.target)){e.dataTransfer.dropEffect='none';return;}
+    e.dataTransfer.dropEffect='copy';
+    els.canvasWrap.dataset.dropHint='ここにドロップ / 案件JSONを開く・選択機器に写真を追加';
+  });
+  document.addEventListener('dragleave',e=>{if(!e.relatedTarget||!inWorkspace(e.relatedTarget))delete els.canvasWrap.dataset.dropHint;});
+  document.addEventListener('drop',e=>{
+    const files=Array.from(e.dataTransfer?.files||[]);if(!files.length)return;
+    e.preventDefault();delete els.canvasWrap.dataset.dropHint;
+    if(blocked()||!inWorkspace(e.target)){toast('ダイアログを閉じて図面エリアにドロップしてください','warn');return;}
+    if(files.length!==1){toast('取り込み先を確実にするため、ファイルは1つずつドロップしてください','warn');return;}
+    void handleWorkspaceFile(files[0],workspaceDropTarget(e));
+  });
+  document.addEventListener('paste',e=>{
+    if(blocked()||isEditableTarget(e.target))return;
+    const item=Array.from(e.clipboardData?.items||[]).find(x=>x.kind==='file'&&x.type.startsWith('image/'));
+    const file=item?.getAsFile();if(!file)return;
+    e.preventDefault();
+    const target=selectedPhotoTarget();
+    if(!target){toast('写真を追加する機器を選択してから、Ctrl / ⌘Vで貼り付けてください','warn');return;}
+    void importDevicePhoto(file,target);
+  });
 }
 
 /* =========================================================================
@@ -4251,37 +4679,31 @@ async function saveProjectFile(){
     return false;
   }
 }
-function onLoadFileChosen(){
-  const file = els.loadFileInput.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = async ()=>{
-    try{
-      const data = JSON.parse(reader.result);
-      if(!data || !Array.isArray(data.floors) || data.floors.length===0) throw new Error('フロアデータが見つかりません');
-      if(state.pendingAutosave){
-        const ok = await confirmModal('プロジェクトを読み込み', '前回の作業データを破棄し、選択したファイルの内容に置き換えます。この操作は取り消せません。', { danger:true, okLabel:'読み込む' });
-        if(!ok) return;
-      }
-      const built = buildProjectFromData(data);
-      if(!built) throw new Error('フロアデータが見つかりません');
-      if(state.pendingAutosave){
-        if(!discardAutosave()) return;
-      }
-      photoImgCache.clear();
-      project = built;
-      ui.floorIdx = 0; ui.sel = null; ui.trayStep = null; setMode('select', null);
-      refreshAll(); fitToScreen();
-      toast('読み込みました', 'ok');
-    }catch(e){
-      toast('ファイルを読み込めませんでした(不正な形式です)', 'warn');
+function onLoadFileChosen(){ return loadProjectFile(els.loadFileInput.files[0]); }
+async function loadProjectFile(file){
+  if(!file||state.projectImportBusy)return false;
+  state.projectImportBusy=true;
+  const owner=project;
+  try{
+    const data=JSON.parse(await readLocalFile(file,true));
+    if(!data || !Array.isArray(data.floors) || !data.floors.some(f=>f&&typeof f==='object'))throw new Error('フロアデータが見つかりません');
+    if(project!==owner)return false;
+    if(state.pendingAutosave||hasProjectWork()){
+      const message=state.pendingAutosave
+        ? '前回の自動保存と現在の作業を、選択したJSONの内容に置き換えます。必要な案件は先にファイル保存してください。'
+        : '現在の案件を、選択したJSONの内容に置き換えます。必要な案件は先にファイル保存してください。';
+      if(!await confirmModal('保存した案件を開く',message,{okLabel:'読み込む'}))return false;
     }
-  };
-  reader.onerror = ()=>{
-    console.warn('プロジェクトファイルの読み込みに失敗しました', reader.error);
-    toast('ファイルを読み込めませんでした', 'warn');
-  };
-  reader.readAsText(file);
+    if(project!==owner)return false;
+    const built=buildProjectFromData(data);if(!built)throw new Error('フロアデータが見つかりません');
+    if(state.pendingAutosave&&!discardAutosave())return false;
+    photoImgCache.clear();
+    Object.keys(undoStacks).forEach(k=>delete undoStacks[k]);Object.keys(redoStacks).forEach(k=>delete redoStacks[k]);
+    project=built;
+    ui.floorIdx=0;ui.sel=null;ui.trayStep=null;setMode('select',null);
+    refreshAll();fitToScreen();toast('案件JSONを読み込みました','ok');return true;
+  }catch(error){toast('案件JSONを読み込めませんでした: '+error.message,'warn');return false;}
+  finally{state.projectImportBusy=false;}
 }
 
 /* =========================================================================
@@ -4536,6 +4958,7 @@ function closeSettingsModal(){
 // next-defaultsブロックを差し替えた新しいHTML全文を作る(現在のライブDOMの一時的な状態はクリーンアップしてから使う)
 function buildExportableHtml(pricingData){
   const clone = document.documentElement.cloneNode(true);
+  clone.querySelector('#canvasWrap')?.removeAttribute('data-drop-hint');
   // 配布用HTMLへ、案件の納入情報やハンドブックプレビューを焼き込まない。
   clone.querySelectorAll('.hbOverlay').forEach(el=>el.remove());
   ['tray','floorTabs','workspaceInfo','workflowHint','saveStatus','quoteNo','totalMain','totalTax','breakdownChips','checkBadge','moneyDrawer','checkPopover'].forEach(id=>{
@@ -4598,7 +5021,7 @@ function renderFloorImage(floor, maxW, maxH, opts){
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText('図面画像が登録されていません', w/2, h/2);
       }
-      drawWalls(ctx, floor); drawWires(ctx, floor); drawRisers(ctx, floor); drawDevices(ctx, floor);
+      drawWalls(ctx, floor); drawWires(ctx, floor, {showLengths:mergeDrawingOptions(project.drawingOptions).exportWireLengths,labelScale:handbook?2.5:2,bounds:{w,h}}); drawRisers(ctx, floor); drawDevices(ctx, floor);
       // 実写画像の枠は提案書スライド(forcePhotos)かつトグルONのときだけ描く。見積書PDF/pptxは従来どおり枠なしのまま
       if(exportPhotos){
         // 図面全体に対して枠が小さすぎると提案書で読めないため、図面幅の約10%になるよう倍率を上げる。
@@ -4611,7 +5034,7 @@ function renderFloorImage(floor, maxW, maxH, opts){
         drawHandbookDeviceGlyphs(ctx, floor);
         drawHandbookDeviceLabels(ctx, floor, { w, h });
       }
-      else drawScaleUI(ctx, floor);
+      else {drawDeviceNumberLabels(ctx,floor,{w,h});drawScaleUI(ctx, floor);}
     } finally {
       ctx.restore();
     }
@@ -4957,6 +5380,7 @@ function drawHandbookDeviceLabels(ctx, floor, bounds){
       ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5/zoom; ctx.stroke();
       ctx.fillStyle = '#ffffff';
       ctx.fillText(text, x+padX, y+badgeH/2);
+      drawDeviceAnnotation(ctx,dv,{bounds,handbook:true});
     }
   } finally {
     ctx.restore();
@@ -5027,7 +5451,8 @@ function handbookDeviceName(dv){
   const master = project.pricing && project.pricing.devices ? project.pricing.devices[dv.type] : null;
   const name = (master&&master.label) || dv.type || '機器';
   const model = String(dv.model==null?'':dv.model).trim();
-  return model ? `${name} / ${model}` : name;
+  const description=model ? `${name} / ${model}` : name;
+  return deviceAnnotation(dv) ? `${deviceAnnotation(dv)} / ${description}` : description;
 }
 function handbookDeviceRows(floor, floorIndex){
   const labels = deviceLabels(floor);
@@ -5700,7 +6125,7 @@ function pptxBuildSlideShapes(model){
 
   // 下段: カメラ実写画像
   if(hasPhotos){
-    S.push(pptxTextBox(id++, MG, 400, 400, 16, { text:'現場撮影イメージ(カメラ映像)', size:1000, bold:true, color:'#334155' }));
+    S.push(pptxTextBox(id++, MG, 400, 400, 16, { text:'現場写真（機器・カメラ映像）', size:1000, bold:true, color:'#334155' }));
     const thumbs = model.photos.slice(0, PPT_PHOTO_MAX);
     const tw = 136, th = 102, gap = 10, ty = 418; // 4:3のサムネイル枠。写真は縦横比を保って内接させる
     thumbs.forEach((ph, i)=>{
@@ -5742,18 +6167,17 @@ function buildProposalSlideData(){
     rels.push({ id:'rId2', type:PPT_RT.image, target:`../media/image${plotIdx}.png` });
     const plot = { rid:'rId2', w:plotImg.w, h:plotImg.h };
 
-    const labels = NEXT_PURE.cameraLabels(floor);
+    const labels = deviceLabels(floor);
     const photos = [];
     // 実写画像トグルOFFのときは、図面上の枠と同様にサムネイル一覧もスライドへ入れない
     for(const dv of (ui.showPhotos ? floor.devices : [])){
-      if(!isCameraDevice(dv)) continue;
       const p = getPhoto(dv.photoId);
       if(!p) continue;
       const idx = media.length+1;
       media.push({ name:`image${idx}.jpeg`, data:dataUrlToBytes(p.src) });
       const rid = 'rId'+(rels.length+2);
       rels.push({ id:rid, type:PPT_RT.image, target:`../media/image${idx}.jpeg` });
-      photos.push({ rid, label:(labels[dv.id]||'カメラ'), w:p.w||4, h:p.h||3 });
+      photos.push({ rid, label:(labels[dv.id]||'機器'), w:p.w||4, h:p.h||3 });
     }
     slides.push({
       rels,
@@ -6137,17 +6561,17 @@ function openHelpModal(){
   els.modalBox.className = 'modalBox';
   els.modalBox.innerHTML = `
     <h3>使い方</h3>
-    <div class="helpStep"><span class="n">1</span><div>図面を読み込み、縮尺を設定する(画像選択・カメラ撮影・サンプル図面/2点タップで実距離を指定)</div></div>
+    <div class="helpStep"><span class="n">1</span><div>図面を読み込み、縮尺を設定する(画像選択・カメラ撮影・サンプル図面/2点タップで実距離を指定)。保存した案件は初期画面の「保存した案件を開く / JSON」、上部の「読込」、JSONファイルのドロップで開けます。</div></div>
     <div class="helpStep"><span class="n">2</span><div>機器を配置する(カードを選んでタップで設置)</div></div>
-    <div class="helpStep"><span class="n">3</span><div>配線・付帯工事を作図する</div></div>
+    <div class="helpStep"><span class="n">3</span><div>配線・付帯工事を作図する。自由・水平垂直・45度を切り替え、Shiftで水平垂直に固定。確定後は線を選んで端点・折れ点をドラッグして編集できます。区間距離は配線パネルで画面表示と資料への反映を別々に切り替えます（図面上の実長、見積の余長・切上げは含みません）。</div></div>
     <div class="helpStep"><span class="n">4</span><div>設定費・オプション・ランクは左のオプションから設定。下の金額を押すと内訳を確認できます。</div></div>
-    <div class="helpStep"><span class="n">5</span><div>カメラの実写画像を挿入する(図面上の点線枠をタップ、またはカメラ選択→インスペクタの「画像を選択」。枠はドラッグで移動、右下の画像ボタンで表示ON/OFF)</div></div>
+    <div class="helpStep"><span class="n">5</span><div>機器を選び「図面の注釈」にCam01などを入力。カメラ・HUB・ルータなど、すべての機器に写真を添付できます。「画像を選択」、画像のドロップ、機器選択後のCtrl / ⌘Vに対応。文字入力中は通常のテキスト貼り付けを優先します。スマホの写真はPCへ転送・保存してから選択するか、スマホ・タブレットでこのツールを開き機器の「画像を選択」から撮影してください。写真を含む案件はJSONでPCへ引き継げます。</div></div>
     <div class="helpStep"><span class="n">6</span><div>見積情報を入力し、見積書(pdf/pptx)・提案書スライド(pptx)・明細CSVを出力する。pptx版はPowerPointで細部を編集できる</div></div>
-    <div class="helpStep"><span class="n">7</span><div>ハンドブック用出力で、番号付き図面と納入機器一覧をA4縦のPDFに。機器を選ぶと設置場所・型番・IP・シリアルを入力できます。C/E番号はフロア内の配置順で、削除すると振り直されます。</div></div>
+    <div class="helpStep"><span class="n">7</span><div>ハンドブック用出力はA4縦のPowerPointが標準。図面と編集可能な納入機器一覧を出力し、PDF・印刷も選べます。注釈は両形式へ反映。C/E番号はフロア内の配置順で、削除すると振り直されます。写真は提案書に反映し、見積書・ハンドブックには従来どおり写真枠を入れません。</div></div>
     <div class="helpStep"><span class="kbd">⌘S</span><div>プロジェクトをファイル保存。端末の自動保存とは別に保管できます。</div></div>
     <p style="margin-top:14px; font-size:.72rem; color:var(--text-mut);">主なショートカット</p>
-    <div class="helpStep"><span class="kbd">⌘Z</span><div>元に戻す(⌘⇧Zでやり直す)</div></div>
-    <div class="helpStep"><span class="kbd">⌘D</span><div>選択中の機器を複製</div></div>
+    <div class="helpStep"><span class="kbd">Ctrl / ⌘Z</span><div>作図中は1点戻す。確定後は操作を元に戻す。Ctrl / ⌘⇧Zでやり直す（WindowsはCtrl+Yも対応）。</div></div>
+    <div class="helpStep"><span class="kbd">Ctrl / ⌘D</span><div>選択中の機器・配線などを複製。矢印キーで微調整、Shift+矢印で大きく移動、Deleteで削除。</div></div>
     <div class="helpStep"><span class="kbd">Shift</span><div>作図中に直前の頂点から水平/垂直スナップ</div></div>
     <div class="helpStep"><span class="kbd">Backspace</span><div>作図中は直前の頂点を取り消し</div></div>
     <div class="helpStep"><span class="kbd">Esc</span><div>選択解除・モード終了</div></div>
@@ -6864,6 +7288,31 @@ function runSelfTests(){
     const xml = pptxBuildSlideShapes(model);
     assertEqual(xml.indexOf(evil), -1, '生の危険文字列が残っている');
     assertEqual(xml.indexOf('&lt;img src=x onerror=alert(1)&gt;')>0, true, 'エスケープ済み表現が無い');
+  });
+
+  /* ---- 配線作図・区間長 ---- */
+  t('wireSegmentMeasurements: 空配列/単一点は区間0件', ()=>{
+    assertEqual(wireSegmentMeasurements([],0.1), []);
+    assertEqual(wireSegmentMeasurements([{x:1,y:2}],0.1), []);
+  });
+  t('wireSegmentMeasurements: 3-4-5区間を縮尺換算する', ()=>{
+    const rows=wireSegmentMeasurements([{x:0,y:0},{x:3,y:4}],0.2);
+    assertClose(rows[0].lengthPx,5);
+    assertClose(rows[0].lengthM,1);
+    assertEqual(rows[0].label,'1m');
+  });
+  t('wireSegmentMeasurements: 縮尺なしはpxと未設定を明示する', ()=>{
+    const rows=wireSegmentMeasurements([{x:0,y:0},{x:3,y:4}],null);
+    assertEqual(rows[0].label,'5px (縮尺未設定)');
+  });
+  t('snapDrawingPoint: 自由/水平垂直/45度とShift上書き', ()=>{
+    const prev={x:0,y:0}, raw={x:8,y:5};
+    assertEqual(snapDrawingPoint(prev,raw,'free',false),raw);
+    assertEqual(snapDrawingPoint(prev,raw,'ortho',false),{x:8,y:0});
+    const d45=snapDrawingPoint(prev,{x:3,y:4},'45',false);
+    assertClose(d45.x,d45.y);
+    assertClose(Math.hypot(d45.x,d45.y),5);
+    assertEqual(snapDrawingPoint(prev,raw,'45',true),{x:8,y:0});
   });
 
   let pass=0;
