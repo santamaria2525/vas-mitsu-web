@@ -328,8 +328,8 @@ svg{ display:block; width:100%; height:100%; }
 .heroCard .heroImportHint{font-size:11px;line-height:1.5;margin-top:10px;}
 #canvasWrap[data-drop-hint]::after{content:attr(data-drop-hint);position:absolute;inset:12px;z-index:30;border:2px dashed #39785b;border-radius:12px;background:rgba(238,248,241,.94);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:18px;font-weight:700;color:#255540;pointer-events:none;}
 .inspPhotoBox .ph{ font-size:.72rem; color:var(--text-mut); text-align:center; padding:8px; }
-.inspPhotoBtns{ display:flex; gap:8px; }
-.inspPhotoBtns button{ flex:1; min-height:34px; border-radius:var(--r-chip); border:1px solid var(--ink-600); background:var(--ink-700); color:var(--text); font-size:.74rem; font-family:inherit; cursor:pointer; }
+.inspPhotoBtns{ display:flex; flex-wrap:wrap; gap:8px; }
+.inspPhotoBtns button{ flex:1 1 90px; min-height:34px; border-radius:var(--r-chip); border:1px solid var(--ink-600); background:var(--ink-700); color:var(--text); font-size:.74rem; font-family:inherit; cursor:pointer; }
 .inspPhotoBtns button.danger{ color:var(--danger); border-color:rgba(244,63,94,.45); }
 
 /* ===== モーダル ===== */
@@ -347,6 +347,11 @@ svg{ display:block; width:100%; height:100%; }
 .modalBtns button.danger{ background:var(--danger); border-color:var(--danger); color:#fff; }
 #cameraVideo{ width:100%; border-radius:10px; background:#000; margin-bottom:12px; max-height:50vh; }
 #cameraCanvas{ display:none; }
+.modalBox.cameraDialog{width:560px;max-height:calc(100vh - 40px);overflow:auto;}
+.cameraDialog #cameraStatus{margin-bottom:12px;}
+.cameraDialog .modalBtns{flex-wrap:wrap;}
+.cameraDialog button:disabled{opacity:.45;cursor:not-allowed;}
+.cameraDialog #cameraFallback{margin-bottom:12px;min-height:40px;padding:0 16px;border:1px solid var(--ink-600);border-radius:var(--r-btn);background:var(--ink-700);color:var(--text);}
 /* ===== PDF図面: ページ選択モーダル ===== */
 .pdfPagePreviewWrap{ background:#0d1220; border:1px solid var(--ink-600); border-radius:8px; margin-bottom:12px; display:flex; align-items:center; justify-content:center; min-height:140px; overflow:hidden; }
 #pdfPagePreview{ max-width:100%; display:block; }
@@ -1869,7 +1874,13 @@ function toast(msg, type){
   setTimeout(()=>{ t.remove(); }, 3200);
 }
 
-function closeModal(){ els.modalOverlay.classList.remove('show'); els.modalBox.innerHTML=''; }
+let cameraModalCancel=null;
+function closeModal(){
+  const cancel=cameraModalCancel;cameraModalCancel=null;
+  if(cancel)cancel();
+  els.modalOverlay.classList.remove('show');els.modalBox.classList.remove('cameraDialog');els.modalBox.innerHTML='';
+  els.modalBox.removeAttribute('role');els.modalBox.removeAttribute('aria-modal');els.modalBox.removeAttribute('aria-labelledby');
+}
 
 function confirmModal(title, message, opts){
   opts = opts||{};
@@ -1939,35 +1950,101 @@ function scaleModal(pxDist){
   });
 }
 
-function cameraModal(){
-  return new Promise(async resolve=>{
+function cameraModal(opts){
+  opts=opts||{};
+  // 先に開いた撮影・許可待ちを残さない。カメラは明示した撮影操作でだけ起動する。
+  closeModal();
+  return new Promise(resolve=>{
+    const previousFocus=document.activeElement;
     els.modalBox.innerHTML = `
-      <h3>カメラで撮影</h3>
+      <h3 id="cameraTitle">${escapeHtml(opts.title||'カメラで撮影')}</h3>
+      <p>${escapeHtml(opts.description||'映像を確認して「撮影する」を押してください。')}</p>
       <video id="cameraVideo" autoplay playsinline muted></video>
       <canvas id="cameraCanvas"></canvas>
+      <p id="cameraStatus" role="status" aria-live="polite">カメラを起動しています。ブラウザのカメラ使用を許可してください。</p>
+      ${typeof opts.onFallback==='function'?'<button type="button" id="cameraFallback" hidden>画像を選択</button>':''}
       <div class="modalBtns">
-        <button id="mCancel">キャンセル</button>
-        <button id="mOk" class="primary">撮影する</button>
+        <button type="button" id="mCancel">キャンセル</button>
+        <button type="button" id="mOk" class="primary" disabled>撮影する</button>
       </div>`;
+    els.modalBox.classList.add('cameraDialog');
+    els.modalBox.setAttribute('role','dialog');els.modalBox.setAttribute('aria-modal','true');els.modalBox.setAttribute('aria-labelledby','cameraTitle');
     els.modalOverlay.classList.add('show');
-    const video = els.modalBox.querySelector('#cameraVideo');
-    let stream = null;
-    try{
-      stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ideal:'environment'} }, audio:false });
-      video.srcObject = stream;
-    }catch(e){
-      toast('カメラを起動できませんでした','warn');
-      closeModal(); resolve(null); return;
-    }
-    const stop = ()=>{ if(stream) stream.getTracks().forEach(t=>t.stop()); };
-    els.modalBox.querySelector('#mCancel').onclick = ()=>{ stop(); closeModal(); resolve(null); };
-    els.modalBox.querySelector('#mOk').onclick = ()=>{
-      const cv = els.modalBox.querySelector('#cameraCanvas');
-      cv.width = video.videoWidth||1280; cv.height = video.videoHeight||720;
-      cv.getContext('2d').drawImage(video,0,0,cv.width,cv.height);
-      const dataUrl = cv.toDataURL('image/jpeg',0.92);
-      stop(); closeModal(); resolve(dataUrl);
+    const video=els.modalBox.querySelector('#cameraVideo'),cv=els.modalBox.querySelector('#cameraCanvas');
+    const ok=els.modalBox.querySelector('#mOk'),cancelBtn=els.modalBox.querySelector('#mCancel');
+    const status=els.modalBox.querySelector('#cameraStatus'),fallback=els.modalBox.querySelector('#cameraFallback');
+    let stream=null,finished=false,failed=false;
+    const stopTracks=s=>{if(s)s.getTracks().forEach(t=>{try{t.stop();}catch(e){}});};
+    const stop=()=>{stopTracks(stream);stream=null;video.pause();video.srcObject=null;};
+    const finish=dataUrl=>{
+      if(finished)return;finished=true;stop();
+      window.removeEventListener('keydown',onKey,true);window.removeEventListener('pagehide',onPageHide);
+      document.removeEventListener('visibilitychange',onVisibility);
+      if(cameraModalCancel===cancel)cameraModalCancel=null;
+      closeModal();resolve(dataUrl);
+      if(previousFocus?.isConnected)previousFocus.focus();
     };
+    const cancel=()=>finish(null);
+    const onKey=e=>{
+      if(e.key==='Escape'){e.preventDefault();e.stopPropagation();cancel();}
+      if(e.key==='Tab'){
+        // 撮影中にTabで背後の案件操作へ抜けない。Shift+Tabもモーダル内で循環する。
+        const buttons=[...els.modalBox.querySelectorAll('button')].filter(b=>!b.disabled&&!b.hidden);
+        if(buttons.length){
+          e.preventDefault();e.stopPropagation();
+          const index=buttons.indexOf(document.activeElement),next=index<0?0:(index+(e.shiftKey?-1:1)+buttons.length)%buttons.length;
+          buttons[next].focus();
+        }
+      }
+    };
+    const onPageHide=()=>cancel();
+    const onVisibility=()=>{if(document.hidden)cancel();};
+    const fail=error=>{
+      if(finished)return;failed=true;stop();ok.disabled=true;video.hidden=true;
+      const name=error?.name;
+      status.textContent=name==='NotAllowedError'||name==='SecurityError'
+        ? 'カメラが許可されていません。ブラウザ・PCのカメラ権限を確認して、開き直してください。'
+        : name==='NotFoundError'?'カメラが見つかりません。PCのカメラ接続を確認してください。'
+        : name==='NotReadableError'?'カメラを使用できません。他のアプリが使用中の場合は閉じて、開き直してください。'
+        : error?.message||'カメラを起動できませんでした。画像の選択も利用できます。';
+      if(fallback)fallback.hidden=false;
+    };
+    const ready=()=>{
+      if(finished||failed)return;
+      ok.disabled=!(stream&&video.readyState>=2&&video.videoWidth>0&&video.videoHeight>0);
+      if(!ok.disabled)status.textContent='映像を確認して撮影してください。音声は使用しません。';
+    };
+    cameraModalCancel=cancel;
+    cancelBtn.onclick=cancel;cancelBtn.focus();
+    window.addEventListener('keydown',onKey,true);window.addEventListener('pagehide',onPageHide);
+    document.addEventListener('visibilitychange',onVisibility);
+    if(fallback)fallback.onclick=()=>{finish(null);opts.onFallback();};
+    video.addEventListener('loadeddata',ready);video.addEventListener('canplay',ready);
+    video.addEventListener('error',()=>fail(new Error('カメラ映像を読み込めませんでした。画像を選択することもできます。')));
+    ok.onclick=()=>{
+      ready();if(finished||failed||ok.disabled)return;
+      try{
+        cv.width=video.videoWidth;cv.height=video.videoHeight;
+        cv.getContext('2d').drawImage(video,0,0,cv.width,cv.height);
+        finish(cv.toDataURL('image/jpeg',0.92));
+      }catch(error){fail(new Error('撮影に失敗しました。カメラを開き直すか、画像を選択してください。'));}
+    };
+    if(!navigator.mediaDevices?.getUserMedia){
+      fail(new Error(window.isSecureContext===false
+        ? 'この接続ではカメラを利用できません。HTTPSの公開版で開くか、画像を選択してください。'
+        : 'このブラウザではカメラを起動できません。画像を選択してください。'));
+      return;
+    }
+    void (async()=>{
+      try{
+        const acquired=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+        // 許可ダイアログ中のキャンセル後に取得できた場合も、即座に停止する。
+        if(finished){stopTracks(acquired);return;}
+        stream=acquired;
+        stream.getTracks().forEach(t=>t.addEventListener('ended',()=>fail({name:'NotReadableError'}),{once:true}));
+        video.srcObject=stream;await video.play();ready();
+      }catch(error){fail(error);}
+    })();
   });
 }
 
@@ -3734,9 +3811,9 @@ function initTrayEvents(){
   });
 }
 
-/* ---- カメラ実写画像の取込(ファイル参照) ----
-   iPhone/iPadでは <input type="file" accept="image/*"> から「写真ライブラリ」「カメラで撮影」の
-   どちらも選べるため、専用のカメラAPIは使わずファイル参照1本に統一している */
+/* ---- 全機器の実写画像の取込 ----
+   ファイル・drop/paste・端末カメラの撮影は共通の縮小・ID参照保存を通す。
+   iPhone/iPadのファイル選択からの撮影も維持する。 */
 let pendingPhotoTarget = null;
 const photoImportTokens = new WeakMap();
 function pickPhotoForDevice(dv){
@@ -3744,6 +3821,27 @@ function pickPhotoForDevice(dv){
   pendingPhotoTarget = {project, floor:currentFloor(), device:dv};
   els.photoInput.value = '';
   els.photoInput.click();
+}
+async function capturePhotoForDevice(dv){
+  const target={project,floor:currentFloor(),device:dv},token={};
+  if(!dv||!target.floor.devices.includes(dv))return false;
+  photoImportTokens.set(dv,token);
+  const isTargetCurrent=()=>{
+    if(photoImportTokens.get(dv)!==token)return false;
+    if(project===target.project&&currentFloor()===target.floor&&target.floor.devices.includes(dv))return true;
+    toast('対象の案件・フロア・機器が変わったため、撮影画像の追加を中止しました','warn');return false;
+  };
+  const label=deviceLabels(target.floor)[dv.id]||'',note=deviceAnnotation(dv);
+  const dataUrl=await cameraModal({
+    title:'機器の実写画像を撮影',
+    description:`${label}${note?' / '+note:''} の写真として追加します。撮影すると現在の実写画像を差し替えます。`,
+    onFallback:()=>{if(isTargetCurrent())pickPhotoForDevice(dv);}
+  });
+  if(!dataUrl||!isTargetCurrent())return false;
+  try{
+    const file=new File([dataUrlToBytes(dataUrl)],'撮影_'+new Date().toISOString().replace(/[:.]/g,'-')+'.jpg',{type:'image/jpeg'});
+    return await importDevicePhoto(file,target);
+  }catch(error){toast('撮影画像を取り込めませんでした。画像を選択して追加してください','warn');return false;}
 }
 // 長辺をmaxEdgeまで縮小してJPEGのdataURLにする。プロジェクトJSON・自動保存(localStorage)の
 // 容量を現実的な範囲に収めるため、原寸のまま保持はしない
@@ -3831,8 +3929,10 @@ function onFileChosen(){
   reader.readAsDataURL(file);
 }
 async function captureImage(){
-  const dataUrl = await cameraModal();
-  if(dataUrl) setFloorImage(dataUrl);
+  const owner=project,floor=currentFloor();
+  const isCurrent=()=>project===owner&&currentFloor()===floor;
+  const dataUrl=await cameraModal({title:'図面をカメラで撮影',onFallback:()=>{if(isCurrent())pickImage();}});
+  if(dataUrl&&isCurrent())setFloorImage(dataUrl);
 }
 function useSampleImage(){ setFloorImage(makeSampleFloorPlanDataUrl()); }
 function setFloorImage(dataUrl){
@@ -3998,9 +4098,10 @@ function inspectorDeviceHtml(dv, floor){
         : '<div class="ph">この機器の写真を追加<br>ここに画像をドロップできます</div>'}</div>
       <div class="inspPhotoBtns">
         <button data-action="pickPhoto">${ph?'差し替え':'画像を選択'}</button>
+        <button data-action="capturePhoto">カメラで撮影</button>
         ${ph?'<button class="danger" data-action="clearPhoto">画像を外す</button>':''}
       </div>
-      <div class="hint">PCでは画像のドロップ、または機器を選択してCtrl / ⌘Vで貼り付け。スマホ・タブレットは「画像を選択」から撮影・写真選択できます。</div>
+      <div class="hint">PCのカメラから直接撮影できます。画像のドロップ・Ctrl / ⌘Vでの貼り付けにも対応。スマホ・タブレットは「画像を選択」からも撮影できます。</div>
       ${ph?`
       <div class="k" style="margin-top:8px;"><span>画像の表示サイズ</span><span>×${(dv.photoScale||1).toFixed(2).replace(/0$/,'')}</span></div>
       <input type="range" min="0.5" max="3" step="0.05" value="${clamp(dv.photoScale||1,0.5,3)}" data-field="photoScale">`:''}
@@ -4074,6 +4175,7 @@ function initInspectorEvents(){
     else if(act==='rotL') nudgeRotate(-45);
     else if(act==='rotR') nudgeRotate(45);
     else if(act==='pickPhoto') pickPhotoForDevice(ui.sel.ref);
+    else if(act==='capturePhoto'&&ui.sel.kind==='device') void capturePhotoForDevice(ui.sel.ref);
     else if(act==='clearPhoto') clearPhotoOfDevice(ui.sel.ref);
   });
   els.inspector.addEventListener('click', e=>{
@@ -4966,7 +5068,10 @@ function buildExportableHtml(pricingData){
   });
   const titleInput=clone.querySelector('#titleField');if(titleInput)titleInput.removeAttribute('value');
   clone.querySelectorAll('.show').forEach(el=>el.classList.remove('show'));
-  const modalBox = clone.querySelector('#modalBox'); if(modalBox){ modalBox.innerHTML=''; modalBox.className='modalBox'; }
+  const modalBox = clone.querySelector('#modalBox'); if(modalBox){
+    modalBox.innerHTML='';modalBox.className='modalBox';
+    modalBox.removeAttribute('role');modalBox.removeAttribute('aria-modal');modalBox.removeAttribute('aria-labelledby');
+  }
   const toastWrap = clone.querySelector('#toastWrap'); if(toastWrap) toastWrap.innerHTML='';
   const banner = clone.querySelector('#autosaveBanner'); if(banner) banner.innerHTML='';
   const drawer = clone.querySelector('#moneyDrawer'); if(drawer){ drawer.classList.remove('open'); }
