@@ -730,11 +730,15 @@ svg{ display:block; width:100%; height:100%; }
 .qsLead{ font-size:.74rem; line-height:1.5; margin-bottom:10px; }
 .qsRoughNotice{ border:1px solid #666; border-left:4px solid #333; padding:6px 9px; }
 .qsRoughNotice strong{ display:block; font-size:.82rem; margin-bottom:2px; }
-.qsCondRow{ display:flex; gap:24px; margin-bottom:8px; align-items:flex-start; }
-.qsCondLeft{ flex:0 0 auto; }
-.qsCondLine{ font-size:.72rem; width:380px; border-bottom:1px dotted #333; padding:2px 0 2px; margin-bottom:3px; }
+.qsCondRow{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; margin-bottom:8px; align-items:flex-start; }
+.qsCondLeft{ min-width:0; }
+.qsCondLine{ font-size:.72rem; border-bottom:1px dotted #333; padding:2px 0 2px; margin-bottom:3px; }
 .qsCondLine .qsLbl{ display:inline-block; min-width:88px; }
-.qsCondRight{ flex:1 1 auto; font-size:.72rem; line-height:1.55; padding-top:2px; }
+.qsCondRight{ min-width:0; font-size:.72rem; line-height:1.55; padding-top:2px; overflow-wrap:anywhere; line-break:strict; }
+.qsIssuerCompany{font-size:.76rem;font-weight:700;margin-bottom:3px;}
+.qsIssuerDepartment,.qsIssuerSection{font-size:.72rem;}
+.qsIssuerStaff{font-size:.74rem;font-weight:600;margin-top:3px;}
+.qsCondRight>div{white-space:pre-line;}
 .qsNameRow{ display:flex; align-items:flex-end; gap:20px; margin:6px 0 10px; }
 .qsNameLeft{ flex:1 1 auto; font-size:.78rem; border-bottom:1px dotted #333; padding-bottom:2px; }
 .qsNameLeft .qsLbl{ display:inline-block; min-width:56px; }
@@ -757,10 +761,9 @@ svg{ display:block; width:100%; height:100%; }
 .qsFooterRow{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin-top:10px; align-items:stretch; break-inside:avoid; }
 .qsVBox{ display:flex; min-width:0; border:1px solid #333; font-size:.7rem; }
 .qsVLbl{ flex:0 0 40px; display:flex; align-items:center; justify-content:center; white-space:nowrap; font-weight:600; border-right:1px solid #333; padding:6px 2px; }
-.qsRemarksBox{ grid-column:1 / -1; }
-.qsRemarksBody,.qsStaffBody{ flex:1; min-width:0; padding:6px 10px; line-height:1.65; line-break:strict; word-break:normal; overflow-wrap:break-word; }
+.qsRemarksBox{ min-height:34mm; }
+.qsRemarksBody{ flex:1; min-width:0; padding:8px 10px; line-height:1.65; line-break:strict; word-break:normal; overflow-wrap:break-word; }
 .qsRemarksBody div{ padding-left:1em; text-indent:-1em; }
-.qsStaffBody div{ white-space:pre-line; }
 .qsStampBox{ flex:0 0 auto; display:flex; gap:6px; }
 .qsStampCell{ width:26mm; border:1px solid #333; display:flex; flex-direction:column; }
 .qsStampHead{ font-size:.68rem; text-align:center; border-bottom:1px solid #333; padding:2px 0; background:#eee; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
@@ -1651,7 +1654,7 @@ function buildProjectFromData(data){
     return fl;
   });
   return {
-    meta: Object.assign({ quoteNo:generateQuoteNo(), title:'', customer:'', staff:'', validDays:60 }, data.meta||{}), // キヤノン様式の見積有効期限≒2ヶ月に合わせ既定60日
+    meta: Object.assign({ quoteNo:generateQuoteNo(), title:'', customer:'', department:'', section:'', staff:'', validDays:60 }, data.meta||{}), // キヤノン様式の見積有効期限≒2ヶ月に合わせ既定60日
     rank: data.rank||'A',
     priceMode: data.priceMode==='useOnly' ? 'useOnly' : 'full', // 旧JSON(キーなし)は機器含むに補完
     pricing,
@@ -1737,8 +1740,9 @@ function discardAutosave(){
 
 function makeFreshProject(){
   const pricing = makePricingMaster();
+  const company=loadCompanyInfo();
   return {
-    meta:{ quoteNo:generateQuoteNo(), title:'', customer:'', staff: loadCompanyInfo().defaultStaff||'', validDays:60 }, // キヤノン様式の見積有効期限≒2ヶ月に合わせ既定60日
+    meta:{ quoteNo:generateQuoteNo(), title:'', customer:'', department:company.defaultDepartment, section:company.defaultSection, staff:company.defaultStaff, validDays:60 }, // キヤノン様式の見積有効期限≒2ヶ月に合わせ既定60日
     floors:[ makeFloor('1F') ],
     pricing,
     counts: makeDefaultCounts(),
@@ -1758,10 +1762,10 @@ function loadCompanyInfo(){
     const raw = localStorage.getItem(COMPANY_KEY);
     if(raw){
       const d = JSON.parse(raw);
-      return { name:d.name||'キヤノンシステムアンドサポート株式会社', defaultStaff:d.defaultStaff||'', address:d.address||'', tel:d.tel||'' };
+      return { name:d.name||'キヤノンシステムアンドサポート株式会社', defaultStaff:d.defaultStaff||'', defaultDepartment:d.defaultDepartment||'', defaultSection:d.defaultSection||'', address:d.address||'', tel:d.tel||'' };
     }
   }catch(e){}
-  return { name:'キヤノンシステムアンドサポート株式会社', defaultStaff:'', address:'', tel:'' };
+  return { name:'キヤノンシステムアンドサポート株式会社', defaultStaff:'', defaultDepartment:'', defaultSection:'', address:'', tel:'' };
 }
 function saveCompanyInfo(info){
   try{ localStorage.setItem(COMPANY_KEY, JSON.stringify(info)); }catch(e){}
@@ -3634,9 +3638,17 @@ function trayOutputHtml(){
       <div class="trayLabel">案件・お客様情報</div>
       <div class="formGrid">
         <div class="formField"><label for="customerField">顧客名</label><input id="customerField" type="text" data-field="customer" value="${escapeHtml(m.customer)}" placeholder="株式会社◯◯" maxlength="120"></div>
-        <div class="formField"><label for="staffField">担当者</label><input id="staffField" type="text" data-field="staff" value="${escapeHtml(m.staff)}" placeholder="担当者名" maxlength="80"></div>
         <div class="formField"><label for="validDaysField">見積有効日数</label><input id="validDaysField" type="number" data-field="validDays" value="${m.validDays}" min="1" max="90"></div>
       </div>
+    </div>
+    <div class="traySection">
+      <div class="trayLabel">発行元・担当者</div>
+      <div class="formGrid">
+        <div class="formField"><label for="departmentField">部名</label><input id="departmentField" type="text" data-field="department" value="${escapeHtml(m.department||'')}" placeholder="例：ソリューション営業部" maxlength="80"></div>
+        <div class="formField"><label for="sectionField">課名</label><input id="sectionField" type="text" data-field="section" value="${escapeHtml(m.section||'')}" placeholder="例：第一営業課" maxlength="80"></div>
+        <div class="formField"><label for="staffField">担当者名</label><input id="staffField" type="text" data-field="staff" value="${escapeHtml(m.staff)}" placeholder="例：山田 太郎" maxlength="80"></div>
+      </div>
+      <div class="hint">見積書右上に会社名・部名・課名・担当者名をまとめます。住所・電話・FAXは出力しません。社名と新規案件の既定値は「設定」で変更できます。</div>
     </div>
     <div class="exportCard handbook">
       <div class="eyebrow">HANDOVER / 引渡し</div>
@@ -4931,9 +4943,10 @@ function openSettingsModal(){
         <div class="formField"><label>諸経費</label><input type="number" id="setMisc" value="${pr.misc}"></div>
         <div class="formField"><label>消費税率(%)</label><input type="number" id="setTax" value="${Math.round(pr.taxRate*100)}"></div>
         <div class="formField"><label>社名</label><input type="text" id="setCompany" value="${escapeHtml(company.name)}"></div>
-        <div class="formField"><label>住所(見積書に印字。未入力可)</label><input type="text" id="setAddress" value="${escapeHtml(company.address)}"></div>
-        <div class="formField"><label>TEL(見積書に印字。未入力可)</label><input type="text" id="setTel" value="${escapeHtml(company.tel)}"></div>
-        <div class="formField"><label>担当者の既定値(この端末に記憶)</label><input type="text" id="setStaff" value="${escapeHtml(company.defaultStaff)}"></div>
+        <div class="formField"><label for="setDepartment">部名の既定値(新規案件用)</label><input type="text" id="setDepartment" value="${escapeHtml(company.defaultDepartment)}" maxlength="80"></div>
+        <div class="formField"><label for="setSection">課名の既定値(新規案件用)</label><input type="text" id="setSection" value="${escapeHtml(company.defaultSection)}" maxlength="80"></div>
+        <div class="formField"><label for="setStaff">担当者の既定値(新規案件用)</label><input type="text" id="setStaff" value="${escapeHtml(company.defaultStaff)}" maxlength="80"></div>
+        <div class="hint">既定値はこの端末に記憶します。現在の案件の部名・課名・担当者名は「出力」で変更してください。</div>
       </div>
     </div>
     <div class="modalBtns" style="margin-top:16px; justify-content:space-between;">
@@ -5021,8 +5034,11 @@ function openSettingsModal(){
     }
     saveCompanyInfo({
       name: els.modalBox.querySelector('#setCompany').value||'',
-      address: els.modalBox.querySelector('#setAddress').value||'',
-      tel: els.modalBox.querySelector('#setTel').value||'',
+      // 旧設定の連絡先は破棄せず保持するが、見積書には出力しない。
+      address:company.address,
+      tel:company.tel,
+      defaultDepartment: els.modalBox.querySelector('#setDepartment').value||'',
+      defaultSection: els.modalBox.querySelector('#setSection').value||'',
       defaultStaff: els.modalBox.querySelector('#setStaff').value||''
     });
     closeSettingsModal();
@@ -5220,7 +5236,7 @@ function quoteDetailTableHtml(chunk, fixedCount){
     <tbody>${trs}${blanks}</tbody>
   </table>`;
 }
-// 備考・担当(社名/住所/担当者名)・押印欄(所属長印/担当印、印影は入れない)。
+// 備考・押印欄(所属長印/担当印、印影は入れない)。担当情報は表紙右上に集約する。
 // 明細が複数ページにまたがっても最後のページにのみ1回だけ出す。小計/消費税/合計は
 // buildQuotePrintRowsで明細表の行として組み込み済みのため、ここでは表外要素のみを扱う
 const QUOTE_ROUGH_TITLE = '大概算見積書';
@@ -5231,22 +5247,25 @@ function quoteRemarksLines(){
   if(project.priceMode==='useOnly') lines.push('ユース（機器貸与）前提の金額です。機器本体費は含みません。');
   return lines;
 }
-function quoteStaffLines(){
-  const company = loadCompanyInfo();
-  return [company.name,company.address,project.meta.staff ? '担当者：'+project.meta.staff : ''].filter(Boolean);
+function quoteIssuerBlocks(){
+  const company=loadCompanyInfo(),m=project.meta;
+  // 旧JSONの担当者自由記述は分割・推測しない。空欄の項目は出力しない。
+  return [
+    ['company',company.name],['department',m.department],['section',m.section],['staff',m.staff]
+  ].map(([kind,value])=>({kind,text:String(value||'').trim()})).filter(b=>b.text).map(b=>({
+    ...b,text:(b.kind==='staff'?'担当者：':'')+b.text
+  }));
+}
+function quoteIssuerHtml(){
+  return quoteIssuerBlocks().map(b=>`<div class="qsIssuer${b.kind[0].toUpperCase()+b.kind.slice(1)}">${escapeHtml(b.text)}</div>`).join('');
 }
 function quoteFinalFooterHtml(){
-  const staffLines = quoteStaffLines();
   return `<div class="qsFooterRow">
       <div class="qsVBox qsRemarksBox">
         <div class="qsVLbl">備考</div>
         <div class="qsRemarksBody">
           ${quoteRemarksLines().map(l=>`<div>・${escapeHtml(l)}</div>`).join('')}
         </div>
-      </div>
-      <div class="qsVBox qsStaffBox">
-        <div class="qsVLbl">担当</div>
-        <div class="qsStaffBody">${staffLines.map(l=>`<div>${escapeHtml(l)}</div>`).join('')}</div>
       </div>
       <div class="qsStampBox">
         <div class="qsStampCell"><div class="qsStampHead">所属長印</div><div class="qsStampBody"></div></div>
@@ -5257,7 +5276,7 @@ function quoteFinalFooterHtml(){
 // 御見積書1ページ目(キヤノンマーケティングジャパン様式・参考帳票に準拠):
 // 左上に社名(赤太字ゴシック・ロゴ画像は使わない)、右上に見積No/発行年月日(点線の下線)、中央にゴシック題字、
 // 宛名(下線)、案内文、左に条件ブロック(点線の下線)+右に発行元情報、見積名+合計(税別)を同一行に配置。
-// isLastChunkがtrueの場合のみ、このページ末尾に備考・担当・押印欄を出す(1回だけ)
+// isLastChunkがtrueの場合のみ、このページ末尾に備考・押印欄を出す(1回だけ)
 function buildQuoteCoverPageHtml(totals, firstChunk, isLastChunk){
   const m = project.meta;
   const company = loadCompanyInfo();
@@ -5286,9 +5305,7 @@ function buildQuoteCoverPageHtml(totals, firstChunk, isLastChunk){
         <div class="qsCondLine"><span class="qsLbl">価格区分</span>：${NEXT_PURE.priceModeLabel(project.priceMode)}${project.priceMode==='useOnly'?'(機器本体費を含まない)':''}</div>
       </div>
       <div class="qsCondRight">
-        ${company.address ? `<div>${escapeHtml(company.address)}</div>` : ''}
-        <div>${escapeHtml(company.name)}</div>
-        ${m.staff ? `<div>${escapeHtml(m.staff)}</div>` : ''}
+        ${quoteIssuerHtml()}
       </div>
     </div>
     <div class="qsNameRow">
@@ -5385,6 +5402,24 @@ function waitForPrintImages(container){
     });
   }));
 }
+function validateQuotePrintLayout(html){
+  // 長い発行元情報でも印刷時に見切れたまま渡さない。実際のA4幅で先に計測する。
+  const proof=document.createElement('div');
+  proof.style.cssText='position:absolute;left:-10000px;top:0;width:210mm;visibility:hidden;pointer-events:none';
+  proof.innerHTML=html;document.body.appendChild(proof);
+  try{
+    const limit=(297-14)*96/25.4;
+    for(const page of proof.querySelectorAll('.qsPage')){
+      const pageRect=page.getBoundingClientRect();
+      const elements=[...page.querySelectorAll('.qsTopRow,.qsCondRow,.qsNameRow,.qsDetailTable,.qsFooterRow')];
+      if(elements.some(el=>el.getBoundingClientRect().bottom-pageRect.top>limit+1)||
+        [...page.querySelectorAll('.qsCondRight,.qsCondRight>div')].some(el=>el.scrollWidth>el.clientWidth+1)){
+        throw new Error('発行元情報などの文字量が多く、見積書のA4紙面に収まりません。「出力」の部名・課名・担当者名、または「設定」の社名を短くして再出力してください。');
+      }
+    }
+    return true;
+  }finally{proof.remove();}
+}
 async function printQuote(){
   const ok = await confirmIfOutputHasErrors();
   if(!ok) return;
@@ -5396,6 +5431,7 @@ async function printQuote(){
     const isLastChunk = i===chunks.length-1;
     html += i===0 ? buildQuoteCoverPageHtml(totals, chunk, isLastChunk) : buildQuoteContinuationPageHtml(chunk, isLastChunk);
   });
+  try{validateQuotePrintLayout(html);}catch(error){toast(error.message,'warn');return;}
   html += buildFloorPagesHtml();
   els.printRoot.innerHTML = html;
   stampPageNumbers(els.printRoot);
@@ -6434,27 +6470,66 @@ function quotePptxTableShapes(S, nid, chunk, x0, y0){
   return QP_HEAD_H + QUOTE_TABLE_FIXED_ROWS*QP_ROW_H;
 }
 
-// 備考・担当・押印欄(最終ページのみ)。quoteFinalFooterHtmlと同じ内容
+// 発行元の日本語長文を、文字を落とさず右上カラムへ収めるPPTX専用レイアウト。
+function quotePptxCharUnits(ch){
+  if(ch===' '||ch==='\t')return .35;
+  return /^[\x00-\x7f]$/.test(ch) ? .56 : 1;
+}
+function quotePptxWrapText(text,maxUnits){
+  const lines=[];let line='',units=0;
+  for(const ch of Array.from(String(text==null?'':text))){
+    if(ch==='\r')continue;
+    if(ch==='\n'){lines.push(line);line='';units=0;continue;}
+    const next=quotePptxCharUnits(ch);
+    if(line&&units+next>maxUnits){lines.push(line);line=ch;units=next;}
+    else{line+=ch;units+=next;}
+  }
+  if(line||!lines.length)lines.push(line);
+  return lines;
+}
+function quoteIssuerPptxLayout(blocks,x,y,w){
+  const styles={
+    company:{size:1050,lineH:14,bold:true,color:'#222222'},
+    department:{size:900,lineH:12,bold:false,color:'#333333'},
+    section:{size:900,lineH:12,bold:false,color:'#333333'},
+    staff:{size:950,lineH:13,bold:true,color:'#222222'}
+  };
+  const items=[];let cy=y;
+  for(const block of blocks||[]){
+    const text=String(block&&block.text||'');if(!text)continue;
+    const style=styles[block.kind]||styles.department;
+    const maxUnits=Math.max(4,Math.floor((w-2)/(style.size/100)));
+    const lines=quotePptxWrapText(text,maxUnits);
+    const h=Math.max(style.lineH,lines.length*style.lineH);
+    items.push({kind:block.kind,text,lines,x,y:cy,w,h,...style});
+    cy+=h+2;
+  }
+  const bottom=items.length?cy-2:y;
+  return {x,y,w,items,height:bottom-y,bottom};
+}
+function quoteIssuerPptxShapes(S,nid,layout){
+  for(const item of layout.items){
+    S.push(pptxTextBox(nid(),item.x,item.y,item.w,item.h,
+      item.lines.map(text=>({text,size:item.size,bold:item.bold,color:item.color,align:'r'}))));
+  }
+}
+
+// 備考・押印欄(最終ページのみ)。担当情報は右上の発行元欄へ集約する。
 function quotePptxFooterShapes(S, nid, y){
-  const bx = QP_MG, bw = QP_W-QP_MG*2, labelW=32, remarksH=48, staffH=66;
-  S.push(pptxRect(nid(), bx, y, bw, remarksH, null, { line:'#333333', lineW:0.75 }));
+  const bx=QP_MG,bw=QP_W-QP_MG*2,labelW=32,remarksH=96,remarksW=bw-152;
+  S.push(pptxRect(nid(), bx, y, remarksW, remarksH, null, { line:'#333333', lineW:0.75 }));
   S.push(pptxTextBox(nid(), bx+5, y, labelW-10, remarksH, { text:'備考', size:800, bold:true }, { anchor:'ctr' }));
   S.push(pptxRect(nid(), bx+labelW, y, .5, remarksH, '#333333'));
-  S.push(pptxTextBox(nid(), bx+labelW+7, y+6, bw-labelW-14, remarksH-12,
+  S.push(pptxTextBox(nid(), bx+labelW+7, y+7, remarksW-labelW-14, remarksH-14,
     quoteRemarksLines().map(text=>({text:'・'+text,size:800,color:'#333333'}))));
-  const sy=y+remarksH+6, sw=bw-152;
-  S.push(pptxRect(nid(), bx, sy, sw, staffH, null, { line:'#333333', lineW:0.75 }));
-  S.push(pptxTextBox(nid(), bx+5, sy, labelW-10, staffH, { text:'担当', size:800, bold:true }, { anchor:'ctr' }));
-  S.push(pptxRect(nid(), bx+labelW, sy, .5, staffH, '#333333'));
-  S.push(pptxTextBox(nid(), bx+labelW+7, sy+6, sw-labelW-14, staffH-12,
-    quoteStaffLines().map(text=>({text,size:800,color:'#333333'}))));
-  let px = bx+sw+8;
+  let px=bx+remarksW+8;
   for(const head of ['所属長印','担当印']){
-    S.push(pptxRect(nid(), px, sy, 70, staffH, null, { line:'#333333', lineW:0.75 }));
-    S.push(pptxRect(nid(), px, sy, 70, 15, '#EEEEEE', { line:'#333333', lineW:0.5 }));
-    S.push(pptxTextBox(nid(), px, sy, 70, 15, { text:head, size:750, align:'c' }, { anchor:'ctr' }));
+    S.push(pptxRect(nid(), px, y, 70, remarksH, null, { line:'#333333', lineW:0.75 }));
+    S.push(pptxRect(nid(), px, y, 70, 15, '#EEEEEE', { line:'#333333', lineW:0.5 }));
+    S.push(pptxTextBox(nid(), px, y, 70, 15, { text:head, size:750, align:'c' }, { anchor:'ctr' }));
     px += 74;
   }
+  return remarksH;
 }
 
 // 明細ページ(1ページ目=表紙付き、2ページ目以降=続き)
@@ -6464,6 +6539,8 @@ function quotePptxPageShapes(totals, chunk, isFirst, isLast, pageNo, pageTotal){
   const nid = ()=>id++;
   const T = (x,y,w,h,text,o)=>{ o=o||{}; S.push(pptxTextBox(nid(), x, y, w, h, { text, size:o.size||900, bold:o.bold, color:o.color, align:o.align }, { anchor:o.anchor })); };
   const useOnly = project.priceMode==='useOnly';
+  const fixedTableH=QP_HEAD_H+QUOTE_TABLE_FIXED_ROWS*QP_ROW_H;
+  const contentBottom=QP_H-44;
   S.push(pptxRect(nid(), 22.7, 22.7, QP_W-45.4, QP_H-45.4, null, { line:'#333333', lineW:0.75 })); // 8mm枠
   const m = project.meta;
   let tableY;
@@ -6472,9 +6549,10 @@ function quotePptxPageShapes(totals, chunk, isFirst, isLast, pageNo, pageTotal){
     const issueDate = new Date();
     const expiry = new Date(issueDate.getTime() + (m.validDays||60)*86400000);
     const fmt = d=>`${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
-    T(QP_MG, 44, 320, 20, company.name, { size:1300, bold:true, color:'#C00000' });
-    T(QP_W-QP_MG-200, 44, 200, 13, `見積No：${m.quoteNo}`, { size:850, align:'r' });
-    T(QP_W-QP_MG-200, 59, 200, 13, `発行年月日：${fmt(issueDate)}`, { size:850, align:'r' });
+    const headerRightX=QP_W-QP_MG-195;
+    T(QP_MG, 44, headerRightX-QP_MG-12, 24, company.name, { size:1300, bold:true, color:'#C00000' });
+    T(headerRightX, 44, 195, 13, `見積No：${m.quoteNo}`, { size:850, align:'r' });
+    T(headerRightX, 59, 195, 13, `発行年月日：${fmt(issueDate)}`, { size:850, align:'r' });
     T(QP_MG, 84, QP_W-QP_MG*2, 30, QUOTE_ROUGH_TITLE, { size:2000, bold:true, align:'c' });
     T(QP_MG, 124, 320, 18, m.customer ? m.customer+' 御中' : '御中', { size:1200, bold:true });
     S.push(pptxRect(nid(), QP_MG, 143, 320, 0.8, '#333333'));
@@ -6491,21 +6569,25 @@ function quotePptxPageShapes(totals, chunk, isFirst, isLast, pageNo, pageTotal){
       S.push(pptxRect(nid(), QP_MG, cy+12.5, 268, 0.5, '#999999'));
       cy += 17.5;
     }
-    const issuer = [];
-    const comp = loadCompanyInfo();
-    if(comp.address) issuer.push(comp.address);
-    issuer.push(comp.name);
-    if(m.staff) issuer.push(m.staff);
-    issuer.forEach((line,i)=>T(QP_W-QP_MG-230, 183+i*15, 230, 13, line, { size:850, align:'r' }));
-    T(QP_MG, 277, 240, 15, `見積名：${m.title||'(無題の案件)'}`, { size:900, bold:true });
-    T(QP_W-QP_MG-265, 273, 265, 19, `大概算額 ¥${totals.pretax.toLocaleString()}− (消費税別${useOnly?'・ユースのみ':''})`, { size:1100, bold:true, align:'r' });
-    S.push(pptxRect(nid(), QP_W-QP_MG-265, 292, 265, 1, '#333333'));
-    tableY = 301;
+    const issuerX=QP_MG+268+12,issuerW=QP_W-QP_MG-issuerX;
+    const issuerLayout=quoteIssuerPptxLayout(quoteIssuerBlocks(),issuerX,183,issuerW);
+    const summaryY=Math.max(273,issuerLayout.bottom+8);
+    tableY=summaryY+28;
+    const requiredBottom=tableY+fixedTableH+(isLast?10+96:0);
+    if(requiredBottom>contentBottom){
+      throw new Error('見積書PPTXの発行元情報が1ページに収まりません。「設定」の社名、または「出力」の部名・課名・担当者名を短くして再出力してください。');
+    }
+    quoteIssuerPptxShapes(S,nid,issuerLayout);
+    T(QP_MG, summaryY+4, 240, 15, `見積名：${m.title||'(無題の案件)'}`, { size:900, bold:true });
+    T(QP_W-QP_MG-265, summaryY, 265, 19, `大概算額 ¥${totals.pretax.toLocaleString()}− (消費税別${useOnly?'・ユースのみ':''})`, { size:1100, bold:true, align:'r' });
+    S.push(pptxRect(nid(), QP_W-QP_MG-265, summaryY+19, 265, 1, '#333333'));
   } else {
     T(QP_MG, 44, QP_W-QP_MG*2, 16, `大概算見積明細（続き） — ${m.title||'無題の案件'} / ${m.quoteNo}`, { size:1000, bold:true });
     T(QP_MG, 65, QP_W-QP_MG*2, 13, QUOTE_ROUGH_NOTICE, { size:850, bold:true });
     tableY = 86;
   }
+  const requiredBottom=tableY+fixedTableH+(isLast?10+96:0);
+  if(requiredBottom>contentBottom) throw new Error('見積書PPTXの明細表と備考欄が1ページに収まりません。');
   const tableH = quotePptxTableShapes(S, nid, chunk, QP_MG, tableY);
   if(isLast) quotePptxFooterShapes(S, nid, tableY+tableH+10);
   T(0, QP_H-34, QP_W, 12, `${pageNo} / ${pageTotal}`, { size:800, align:'c', color:'#666666' });
@@ -6640,7 +6722,7 @@ function loadDemoProject(){
   floor.risers.push({ id:uid(), type:'lan', x:605, y:420 });
 
   project = {
-    meta:{ quoteNo:generateQuoteNo(), title:'デモ案件(サンプルオフィス)', customer:'サンプル株式会社', staff: loadCompanyInfo().defaultStaff||'', validDays:60 },
+    meta:{ quoteNo:generateQuoteNo(), title:'デモ案件(サンプルオフィス)', customer:'サンプル株式会社', department:loadCompanyInfo().defaultDepartment, section:loadCompanyInfo().defaultSection, staff:loadCompanyInfo().defaultStaff, validDays:60 },
     floors:[ floor ],
     pricing,
     counts:{ setupFees:{ camera:4, recorder:0, peripheral:0 } },
