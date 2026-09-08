@@ -1,13 +1,5 @@
 <!DOCTYPE html>
-<!--
-  同梱ライブラリ: pdf.js (npmパッケージ名 pdfjs-dist) v3.11.174
-  配布元: Mozilla Foundation (https://github.com/mozilla/pdf.js) / ライセンス: Apache License 2.0
-  ビルド時にnpmで取得した build/pdf.min.js と build/pdf.worker.min.js を本ファイルへ完全同梱しており、
-  実行時に外部サーバー・CDNへ通信することは一切ない(オフライン動作維持)。
-  埋め込み箇所: <script id="pdfjs-lib-embed">(本体) と <script type="text/plain" id="pdfjs-worker-src">(worker)。
--->
-<html lang="ja">
-<head>
+<html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>VAS MITSU v1.0</title>
@@ -799,66 +791,96 @@ svg{ display:block; width:100%; height:100%; }
 <div id="app">
   <header id="topbar">
     <div id="logo">
-      <span class="mark" id="logoMark"></span>
+      <span class="mark" id="logoMark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 10h18M9 5v14"></path></svg></span>
       <span class="name">VAS MITSU<span class="brandSub">配置・見積・引渡し</span></span>
     </div>
     <div id="titleWrap">
       <input id="titleField" type="text" placeholder="案件名を入力…" maxlength="60" aria-label="案件名">
-      <span id="saveStatus" role="status" aria-live="polite">新しい案件</span>
+      <span id="saveStatus" role="status" aria-live="polite" data-state="saved" title="この端末のブラウザに自動保存済みです。JSONファイルへの保存とは別です"></span>
     </div>
-    <span id="quoteNo">CS-00000000-000</span>
+    <span id="quoteNo"></span>
     <div class="topbarSpacer"></div>
-    <button class="pillBtn" id="btnUndo" title="元に戻す (⌘Z)" aria-label="元に戻す"></button>
-    <button class="pillBtn" id="btnRedo" title="やり直す (⌘⇧Z)" aria-label="やり直す"></button>
+    <button class="pillBtn" id="btnUndo" title="元に戻す (⌘Z)" aria-label="元に戻す" disabled=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 1 3 6.3"></path><path d="M4 6v6h6"></path></svg><span class="lbl">戻す</span></button>
+    <button class="pillBtn" id="btnRedo" title="やり直す (⌘⇧Z)" aria-label="やり直す" disabled=""><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 0-3 6.3"></path><path d="M20 6v6h-6"></path></svg><span class="lbl">やり直し</span></button>
     <div class="topDivider"></div>
-    <button class="pillBtn accent" id="btnSave" title="保存" aria-label="保存"></button>
-    <button class="pillBtn" id="btnLoad" title="読込" aria-label="読込"></button>
-    <button class="pillBtn" id="btnSettings" title="設定" aria-label="設定"></button>
-    <button class="pillBtn" id="btnHelp" title="ヘルプ" aria-label="ヘルプ"></button>
+    <button class="pillBtn accent" id="btnSave" title="保存" aria-label="保存"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"></path><path d="M8 4v6h8V4M8 20v-6h8v6"></path></svg><span class="lbl">保存</span></button>
+    <button class="pillBtn" id="btnLoad" title="読込" aria-label="読込"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v5H4z"></path><path d="M4 10v9h16v-9M9 14h6"></path></svg><span class="lbl">読込</span></button>
+    <button class="pillBtn" id="btnSettings" title="設定" aria-label="設定"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"></circle><path d="M12 3v2M12 19v2M4.2 6l1.4 1.4M18.4 16.6l1.4 1.4M3 12h2M19 12h2M4.2 18l1.4-1.4M18.4 7.4l1.4-1.4"></path></svg><span class="lbl">設定</span></button>
+    <button class="pillBtn" id="btnHelp" title="ヘルプ" aria-label="ヘルプ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 .9-1 1.7"></path><path d="M12 17.2h.01"></path></svg><span class="lbl">ヘルプ</span></button>
   </header>
 
   <div id="main">
-    <nav id="flowrail" aria-label="作業ステップ"></nav>
-    <aside id="tray" aria-label="作業パネル"></aside>
+    <nav id="flowrail" aria-label="作業ステップ">
+    <button class="railBtn" data-step="1" aria-label="図面" aria-expanded="false">
+      <span class="stepNum">01</span>
+      <span class="dot" data-dot="1"></span>
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"></rect><path d="M3 15l5-5 4 4 5-6 4 5"></path></svg></span>
+      <span class="lbl">図面</span>
+    </button>
+    <button class="railBtn" data-step="2" aria-label="機器" aria-expanded="false">
+      <span class="stepNum">02</span>
+      <span class="dot" data-dot="2"></span>
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 1 2-2h1.2L8.5 4h7l1.3 2H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"></path><circle cx="12" cy="13" r="3.4"></circle></svg></span>
+      <span class="lbl">機器</span>
+    </button>
+    <button class="railBtn" data-step="3" aria-label="配線" aria-expanded="false">
+      <span class="stepNum">03</span>
+      <span class="dot" data-dot="3"></span>
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"></circle><circle cx="19" cy="18" r="2"></circle><path d="M6.6 7.6C10 11 8 13 12 13s2 2 5.4 5.4"></path></svg></span>
+      <span class="lbl">配線</span>
+    </button>
+    <button class="railBtn" data-step="4" aria-label="オプション" aria-expanded="false">
+      <span class="stepNum">04</span>
+      <span class="dot" data-dot="4"></span>
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="M7.5 9l1.3 1.3L11 8"></path><path d="M7.5 15l1.3 1.3L11 14"></path><path d="M13.5 9.3h4M13.5 15.3h4"></path></svg></span>
+      <span class="lbl">オプション</span>
+    </button>
+    <button class="railBtn" data-step="5" aria-label="出力" aria-expanded="false">
+      <span class="stepNum">05</span>
+      <span class="dot" data-dot="5"></span>
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M9 15h6M9 18h4"></path></svg></span>
+      <span class="lbl">出力</span>
+    </button></nav>
+    <aside id="tray" aria-label="作業パネル" data-step=""></aside>
 
     <div id="canvasWrap">
-      <canvas id="cv"></canvas>
+      <canvas id="cv" width="3254" height="1504" style="width: 1627px; height: 752px;"></canvas>
       <div id="floorTabs"></div>
       <div id="workspaceInfo"></div>
       <div id="workflowHint"></div>
-      <div id="modeChip"><span id="modeChipText"></span><button id="modeChipClose" aria-label="モード終了"></button></div>
+      <div id="modeChip"><span id="modeChipText"></span><button id="modeChipClose" aria-label="モード終了"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>
       <div id="zoomCtrl">
-        <button class="iconBtn" id="btnZoomOut" aria-label="縮小"></button>
+        <button class="iconBtn" id="btnZoomOut" aria-label="縮小"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3M8 11h6"></path></svg></button>
         <span id="zoomPct">100%</span>
-        <button class="iconBtn" id="btnZoomIn" aria-label="拡大"></button>
-        <button class="iconBtn" id="btnFit" title="全体表示" aria-label="全体表示"></button>
-        <button class="iconBtn" id="btnPhotoToggle" title="実写画像の表示切替" aria-label="実写画像の表示切替"></button>
+        <button class="iconBtn" id="btnZoomIn" aria-label="拡大"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"></path></svg></button>
+        <button class="iconBtn" id="btnFit" title="全体表示" aria-label="全体表示"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></button>
+        <button class="iconBtn on" id="btnPhotoToggle" title="実写画像の枠を隠す" aria-label="実写画像の表示切替"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="8.5" cy="9.5" r="1.6"></circle><path d="M3 16.5l4.5-4 3.5 3 3.5-4 6.5 6"></path></svg></button>
       </div>
       <div id="actionChipBar">
-        <button class="chipBtn" id="btnStepBack"></button>
+        <button class="chipBtn" id="btnStepBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5l-7 7 7 7M4 12h16"></path></svg></button>
         <span id="liveDist"></span>
-        <button class="chipBtn ok" id="btnConfirmDraw"></button>
-        <button class="chipBtn danger" id="btnCancelDraw"></button>
+        <button class="chipBtn ok" id="btnConfirmDraw"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"></path></svg></button>
+        <button class="chipBtn danger" id="btnCancelDraw"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
       </div>
-      <div id="emptyState">
+      <div id="emptyState" class="">
         <div class="heroCard">
           <div class="heroContent">
           <div class="eyebrow">YOUR PROJECT STARTS HERE</div>
-          <div class="hicon" id="heroIcon"></div>
+          <div class="hicon" id="heroIcon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 15l5-5 4 4 5-6 4 5"></path><circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"></circle></svg></div>
           <h2>まずは、<br>図面をひらく。</h2>
           <p>機器を置く。配線を描く。見積ができる。<br>お客様への引渡し資料まで、この案件から。</p>
           <div class="heroBtns">
-            <button class="primary" id="heroPick"></button>
-            <button id="heroCam"></button>
-            <button id="heroSample"></button>
-            <button id="heroLoad"></button>
-            <button id="heroDemo" class="withCaption"></button>
+            <button class="primary" id="heroPick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"></path><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></svg><span>図面を読み込む / PDF・画像</span></button>
+            <button id="heroCam"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 1 2-2h1.2L8.5 4h7l1.3 2H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"></path><circle cx="12" cy="13" r="3.4"></circle></svg><span>カメラで撮影</span></button>
+            <button id="heroSample"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 14l4-4 4 3 5-6 5 5"></path></svg><span>サンプル図面で試す</span></button>
+            <button id="heroLoad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v5H4z"></path><path d="M4 10v9h16v-9M9 14h6"></path></svg><span>保存した案件を開く / JSON</span></button>
+            <button id="heroDemo" class="withCaption"><span class="hdRow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 14l4-4 4 3 5-6 5 5"></path></svg><span>完成例を見てみる</span></span><span class="hdCaption">2フロア・写真・機器名・納入情報入り</span></button>
           </div>
           <p class="heroImportHint">保存した案件JSONは、この画面にドロップしても開けます。</p>
           </div>
           <div class="heroVisual" aria-hidden="true">
             <div class="visualCaption">PLAN / CONNECT / DELIVER</div>
-            <svg viewBox="0 0 240 220" fill="none"><rect x="16" y="20" width="208" height="172" rx="3" fill="#fff" stroke="#adc6ad"/><path d="M16 112h95m34 0h79M110 20v65m0 54v53M166 112v80" stroke="#abc2a8" stroke-width="3"/><path d="M40 44h154v112h-6M40 44v46h-7" stroke="#659777" stroke-width="1.5" stroke-dasharray="4 4"/><path d="M40 44l54 12-33 42zM194 44l-56 23 50 28zM194 156l-6-38-35 35z" fill="#b8d7b0" fill-opacity=".45"/><g fill="#387654" stroke="white" stroke-width="2"><circle cx="40" cy="44" r="7"/><circle cx="194" cy="44" r="7"/><circle cx="194" cy="156" r="7"/></g><g fill="#6b886e" font-size="8" font-family="sans-serif"><text x="30" y="31">C1</text><text x="184" y="31">C2</text><text x="200" y="174">C3</text><text x="46" y="158">01 / ENTRANCE</text><text x="131" y="82">02 / OFFICE</text></g><path d="M16 210h208M16 206v8m208-8v8" stroke="#b6cbb2"/></svg>
+            <svg viewBox="0 0 240 220" fill="none"><rect x="16" y="20" width="208" height="172" rx="3" fill="#fff" stroke="#adc6ad"></rect><path d="M16 112h95m34 0h79M110 20v65m0 54v53M166 112v80" stroke="#abc2a8" stroke-width="3"></path><path d="M40 44h154v112h-6M40 44v46h-7" stroke="#659777" stroke-width="1.5" stroke-dasharray="4 4"></path><path d="M40 44l54 12-33 42zM194 44l-56 23 50 28zM194 156l-6-38-35 35z" fill="#b8d7b0" fill-opacity=".45"></path><g fill="#387654" stroke="white" stroke-width="2"><circle cx="40" cy="44" r="7"></circle><circle cx="194" cy="44" r="7"></circle><circle cx="194" cy="156" r="7"></circle></g><g fill="#6b886e" font-size="8" font-family="sans-serif"><text x="30" y="31">C1</text><text x="184" y="31">C2</text><text x="200" y="174">C3</text><text x="46" y="158">01 / ENTRANCE</text><text x="131" y="82">02 / OFFICE</text></g><path d="M16 210h208M16 206v8m208-8v8" stroke="#b6cbb2"></path></svg>
             <div class="heroSteps"><div><b>01</b> 図面と縮尺を設定</div><div><b>02</b> 機器・配線をプロット</div><div><b>03</b> 見積・提案・ハンドブックへ</div></div>
           </div>
         </div>
@@ -871,17 +893,17 @@ svg{ display:block; width:100%; height:100%; }
   <footer id="moneybar">
     <button id="priceModeBadge" type="button" title="価格区分を切り替え">機器含む</button>
     <button id="totalWrap" aria-label="内訳を開く">
-      <span class="totalFigures"><span class="totalCaption">大概算 / 税抜</span><span id="totalMain">¥0</span></span>
-      <span id="totalTax">税込 ¥0</span>
+      <span class="totalFigures"><span class="totalCaption">大概算 / 税抜</span><span id="totalMain"></span></span>
+      <span id="totalTax"></span>
     </button>
     <div class="moneySep"></div>
     <div id="breakdownChips"></div>
-    <button id="checkBadge"></button>
-    <button id="proposalBtn" title="提案書スライド出力(pptx)"></button>
-    <button id="quotePptxBtn" title="見積書出力(pptx)・PowerPointで編集可"></button>
-    <button id="pdfBtn" title="見積書出力(pdf)"></button>
-    <button class="outputAction" id="outputCenterBtn">見積・提案書</button>
-    <button class="outputAction primary" id="handbookBtn">ハンドブック用出力</button>
+    <button id="checkBadge" class="ok"></button>
+    <button id="proposalBtn" title="提案書スライド出力(pptx)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M12 16v4M8.5 20h7"></path><path d="M6.5 12l3-3 2.2 2.2L15 8"></path></svg><span>提案書(pptx)</span></button>
+    <button id="quotePptxBtn" title="見積書出力(pptx)・PowerPointで編集可"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M12 16v4M8.5 20h7"></path><path d="M6.5 12l3-3 2.2 2.2L15 8"></path></svg><span>見積書(pptx)</span></button>
+    <button id="pdfBtn" title="見積書出力(pdf)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg><span>見積書(pdf)</span></button>
+    <button class="outputAction" id="outputCenterBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M9 15h6M9 18h4"></path></svg><span>見積・提案書</span></button>
+    <button class="outputAction primary" id="handbookBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M12 16v4M8.5 20h7"></path><path d="M6.5 12l3-3 2.2 2.2L15 8"></path></svg><span>ハンドブック用出力</span></button>
   </footer>
 </div>
 
@@ -898,13 +920,13 @@ svg{ display:block; width:100%; height:100%; }
 <div id="moneyDrawer"></div>
 <div class="popover" id="checkPopover"></div>
 
-<div id="autosaveBanner"></div>
+<div id="autosaveBanner" class=""></div>
 
 <div id="toastWrap"></div>
 <div id="selftestPanel"></div>
 
 <div id="printRoot"></div>
-<script type="application/json" id="next-defaults"></script>
+<script type="application/json" id="next-defaults">{"devices":{"cam_in":{"label":"屋内カメラ","price":40000,"install":8500,"color":"#2563eb","fovDeg":90,"rangeM":5,"hasFov":true},"cam_out":{"label":"屋外カメラ","price":70000,"install":16500,"color":"#dc2626","fovDeg":90,"rangeM":5,"hasFov":true},"cam_360":{"label":"全方位カメラ","price":100000,"install":12500,"color":"#059669","fovDeg":360,"rangeM":5,"hasFov":true},"recorder":{"label":"レコーダー","price":550000,"install":9500,"color":"#0891b2"},"hub":{"label":"HUB","price":60000,"install":9500,"color":"#d97706"},"router":{"label":"ルータ","price":80000,"install":9500,"color":"#7c3aed"},"ap":{"label":"AP","price":45000,"install":9500,"color":"#0284c7","rangeM":5,"isAp":true},"custom":{"label":"カスタム","price":0,"install":0,"color":"#be185d"}},"wires":{"normal":{"label":"通常配線","pricePerM":450,"color":"#2563eb"},"outdoor":{"label":"屋外配線","pricePerM":800,"color":"#059669"},"high":{"label":"高所配線","pricePerM":2200,"color":"#d97706"},"custom":{"label":"カスタム配線","pricePerM":0,"color":"#7c3aed"}},"risers":{"lan":{"label":"LAN立上げ・立下げ","price":1500,"color":"#0d9488","sym":"L"},"wall":{"label":"壁貫通","price":12000,"color":"#9333ea","sym":"W"}},"setupFees":{"camera":{"label":"カメラ設定費","price":18000,"unit":"台"},"recorder":{"label":"レコーダー設定費","price":80000,"unit":"式"},"peripheral":{"label":"周辺機器設定費","price":12000,"unit":"台"}},"options":{"holiday":{"label":"休日対応","mode":"rate","value":50},"overtime":{"label":"時間外対応","mode":"rate","value":50},"doc":{"label":"ドキュメント作成","mode":"amount","value":15000},"mgmt":{"label":"案件管理","mode":"rate","value":10},"lift":{"label":"高所作業車","mode":"amount","value":70000},"special":{"label":"特殊工事","mode":"amount","value":0},"other":{"label":"その他","mode":"amount","value":0}},"base":15000,"misc":1,"taxRate":0.1,"rank":{"A":1,"B":1.1,"C":1.3}}</script>
 
 <script id="pdfjs-lib-embed">/**
  * @licstart The following is the entire license notice for the
@@ -7703,5 +7725,6 @@ if(document.readyState==='loading'){
   initApp();
 }
 </script>
-</body>
-</html>
+
+
+</body></html>
