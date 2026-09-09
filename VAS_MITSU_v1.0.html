@@ -463,7 +463,9 @@ svg{ display:block; width:100%; height:100%; }
 .brandSub{display:block;font-size:9px;letter-spacing:.16em;color:var(--text-mut);font-weight:500;margin-top:3px;}
 #titleWrap{flex:1;max-width:340px;flex-direction:column;align-items:flex-start;gap:0;}
 #titleField{width:100%;max-width:340px;font-size:14px;font-weight:600;padding:3px 8px;}
-#saveStatus{font-size:10px;padding-left:9px;color:var(--text-mut);line-height:1.5;white-space:nowrap;}
+#saveStatus{font-size:10px;padding:0 0 0 9px;color:var(--text-mut);line-height:1.5;white-space:nowrap;border:0;background:transparent;text-align:left;}
+#saveStatus:disabled{opacity:1;cursor:default;}
+#saveStatus:not(:disabled){cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
 #saveStatus[data-state=error]{color:var(--danger);}
 #saveStatus[data-state=saved]{color:var(--accent);}
 #quoteNo{background:none;font-size:10px;letter-spacing:.04em;}
@@ -796,7 +798,7 @@ svg{ display:block; width:100%; height:100%; }
     </div>
     <div id="titleWrap">
       <input id="titleField" type="text" placeholder="案件名を入力…" maxlength="60" aria-label="案件名">
-      <span id="saveStatus" role="status" aria-live="polite" data-state="saved" title="この端末のブラウザに自動保存済みです。JSONファイルへの保存とは別です"></span>
+      <button id="saveStatus" type="button" aria-live="polite" data-state="saved" disabled title="この端末のブラウザに自動保存済みです。JSONファイルへの保存とは別です"></button>
     </div>
     <span id="quoteNo"></span>
     <div class="topbarSpacer"></div>
@@ -1693,6 +1695,7 @@ function setSaveStatus(status, text, title){
   if(!el) return;
   el.dataset.state = status;
   el.textContent = text;
+  el.disabled = !state.pendingAutosave;
   el.title = title;
 }
 function saveStatusTime(date){
@@ -1704,7 +1707,7 @@ function markDirty(){
   state.autosaveTimer = null;
   if(state.pendingAutosave){
     if(!state.autosaveInitializing) state.pendingAutosaveDirty = true;
-    setSaveStatus('pending', '自動保存を保留中', '前回の作業データを保護しています。復元または破棄を選んでください');
+    setSaveStatus('pending', '保存データを確認', 'クリックして復元・破棄を選べます。選択するまで自動保存を保留します');
     return;
   }
   setSaveStatus('dirty', '保存待ち', '変更内容をこの端末のブラウザへ自動保存します');
@@ -1714,7 +1717,7 @@ function doAutosave(){
   clearTimeout(state.autosaveTimer);
   state.autosaveTimer = null;
   if(state.pendingAutosave){
-    setSaveStatus('pending', '自動保存を保留中', '前回の作業データを保護しています。復元または破棄を選んでください');
+    setSaveStatus('pending', '保存データを確認', 'クリックして復元・破棄を選べます。選択するまで自動保存を保留します');
     return false;
   }
   try{
@@ -4460,6 +4463,11 @@ function initKeyboard(){
    22. トップバー / ズーム / モードチップ イベント
    ========================================================================= */
 function initTopbar(){
+  document.getElementById('saveStatus').addEventListener('click', ()=>{
+    if(!state.pendingAutosave) return;
+    if(els.autosaveBanner.classList.contains('show')) els.autosaveBanner.classList.remove('show');
+    else showAutosaveBanner(state.pendingAutosave);
+  });
   els.titleField.addEventListener('input', ()=>{ project.meta.title = els.titleField.value; markDirty(); });
   els.btnUndo.addEventListener('click', undo);
   els.btnRedo.addEventListener('click', redo);
@@ -7703,7 +7711,7 @@ function initApp(){
   refreshAll();
   state.autosaveInitializing = false;
 
-  if(pending) showAutosaveBanner(pending);
+  // 復元案内は起動時に出さず、保存状態のボタンを押したときだけ表示する。
 
   if(new URLSearchParams(location.search).get('selftest')==='1'){
     setTimeout(runSelfTests, 50);
