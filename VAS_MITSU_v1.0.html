@@ -787,6 +787,29 @@ svg{ display:block; width:100%; height:100%; }
   .drawerGrid{ grid-template-columns:1fr; width:100%; }
   .dCard.totalCard{ flex-basis:auto; width:100%; }
 }
+/* 案件メモ・現地確認: iPadと狭い画面でも行単位で入力できる作業票。 */
+.projectNotesOverlay{position:fixed;inset:0;z-index:1080;background:rgba(15,34,30,.55);display:flex;justify-content:center;padding:18px;}
+.notesDialog{width:min(880px,100%);min-width:0;background:var(--ink-800);border-radius:16px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 70px #19352d40;}
+.notesHeader{display:flex;align-items:center;gap:16px;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--ink-600);}
+.notesHeader h2{margin:0;font-size:20px;}.notesHeader p{margin:5px 0 0;color:var(--text-mut);font-size:13px;overflow-wrap:anywhere;}
+.notesTabs{display:flex;padding:10px 24px;gap:8px;border-bottom:1px solid var(--ink-600);}
+.notesTabs button{min-height:44px;padding:8px 20px;border:1px solid var(--ink-600);border-radius:8px;background:white;}.notesTabs button.active{background:var(--accent);color:white;border-color:var(--accent);}
+.notesBody{padding:16px 24px 24px;overflow:auto;flex:1;min-height:0;overscroll-behavior:contain;}
+.notesField{display:block;font-weight:650;margin:0 0 20px;line-height:1.6;}
+.notesBody textarea,.notesBody input,.notesBody select{width:100%;min-width:0;border:1px solid #baccc4;border-radius:8px;background:#fff;color:var(--text);font:inherit;font-size:16px;padding:10px;min-height:44px;}
+.notesBody textarea{display:block;resize:vertical;line-height:1.6;user-select:text;-webkit-user-select:text;font-weight:400;margin-top:6px;}
+.notesIntro{font-size:13px;color:var(--text-mut);line-height:1.7;}.notesFilters{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}.notesFilters label{font-size:13px;line-height:1.8;}
+.notesProgress{background:var(--accent-soft);color:var(--accent);padding:10px 12px;border-radius:8px;font-size:13px;line-height:1.8;}
+.surveyRow{border:1px solid var(--ink-600);border-radius:10px;padding:14px;margin:12px 0;}.surveyRowHead{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;}.surveyRowHead>div{min-width:0;}.surveyRowHead p{font-size:12px;line-height:1.5;color:var(--text-mut);margin:4px 0;overflow-wrap:anywhere;}.surveyRowHead select{width:112px;flex-shrink:0;}
+.surveyJump{background:transparent;color:var(--accent);border:0;text-decoration:underline;min-height:44px;padding:8px 0;font-size:13px;}
+.notesFooter{padding:12px 24px;display:flex;align-items:center;justify-content:flex-end;gap:8px;border-top:1px solid var(--ink-600);flex-wrap:wrap;}.notesFooter>span{font-size:12px;margin-right:auto;color:var(--text-mut);}
+.surveyMeta{font-size:9pt;line-height:1.7;margin:5mm 0 3mm;flex-shrink:0;overflow-wrap:anywhere;}
+.surveyTable{width:100%;table-layout:fixed;border-collapse:collapse;font-size:9pt;line-height:1.55;flex-shrink:0;}.surveyTable th,.surveyTable td{border:1px solid #bccdc5;padding:2.5mm;vertical-align:top;overflow-wrap:anywhere;white-space:pre-wrap;}.surveyTable th{background:#edf5f0;text-align:left;font-weight:700;}.surveyTable td:last-child{min-height:12mm;}
+.surveyPage .hbPageFooter{margin-top:auto;}
+.surveyPage .hbPageHeader>div:first-child{min-width:0;}.surveyPage .hbPageMeta{max-width:65mm;}
+@media(max-width:600px){.projectNotesOverlay{padding:0;}.notesDialog{border-radius:0;}.notesHeader,.notesTabs,.notesFooter{padding:12px;}.notesBody{padding:12px;}.notesFooter>span{width:100%;}.notesHeader h2{font-size:17px;}.notesFilters{gap:8px;}.surveyRow{padding:10px;}}
+@media print{.projectNotesOverlay{display:none!important;}}
+
 </style>
 </head>
 <body>
@@ -1399,7 +1422,7 @@ const NEXT_PURE = {
   },
 
   snapshotFloor(floor){
-    return JSON.parse(JSON.stringify({ devices:floor.devices, wires:floor.wires, walls:floor.walls, risers:floor.risers, scale:floor.scale }));
+    return JSON.parse(JSON.stringify({ devices:floor.devices, wires:floor.wires, walls:floor.walls, risers:floor.risers, scale:floor.scale, survey:mergeFloorSurvey(floor.survey) }));
   },
   restoreFloor(floor, snap){
     const clone = JSON.parse(JSON.stringify(snap));
@@ -1408,6 +1431,7 @@ const NEXT_PURE = {
     floor.walls = clone.walls;
     floor.risers = clone.risers;
     floor.scale = clone.scale;
+    floor.survey = mergeFloorSurvey(clone.survey);
     return floor;
   }
 };
@@ -1645,11 +1669,26 @@ function mergeDrawingOptions(value){
   return { showWireLengths:value?.showWireLengths===true, exportWireLengths:value?.exportWireLengths===true };
 }
 
+// 現地記録は案件・フロアに所属し、顧客向けの提案文とは分けて保存する。
+const BRIEF_FIELDS = [['purpose','現状の課題・導入目的'],['solution','提案内容・採用理由'],['conditions','前提条件・対象外'],['nextAction','次の進め方']];
+const SURVEY_CHECKS = [['position','設置位置・取付下地'],['route','配線ルート・貫通箇所'],['power','電源・PoE給電'],['network','ネットワーク・接続先'],['recording','録画・運用条件'],['access','作業時間・入館条件']];
+const SURVEY_STATUS = {todo:'未確認',followup:'要対応',ok:'確認済',na:'対象外'};
+function mergeBrief(value){
+  return Object.fromEntries(BRIEF_FIELDS.map(([key])=>[key,typeof value?.[key]==='string'?value[key]:'']));
+}
+function mergeSurveyEntry(value){
+  return {status:Object.prototype.hasOwnProperty.call(SURVEY_STATUS,value?.status)?value.status:'todo',note:typeof value?.note==='string'?value.note:''};
+}
+function mergeFloorSurvey(value){
+  return {date:typeof value?.date==='string'?value.date:'',surveyor:typeof value?.surveyor==='string'?value.surveyor:'',
+    checks:Object.fromEntries(SURVEY_CHECKS.map(([key])=>[key,mergeSurveyEntry(value?.checks?.[key])]))};
+}
+
 function serializeProject(p){
   return {
     app: PROJECT_APP_ID, version: PROJECT_VERSION, savedAt: Date.now(),
-    meta:p.meta, rank:p.rank, priceMode:p.priceMode||'full', pricing:p.pricing, counts:p.counts, options:p.options, photos:p.photos||{}, drawingOptions:mergeDrawingOptions(p.drawingOptions),
-    floors:p.floors.map(f=>({ id:f.id, name:f.name, imgSrc:f.imgSrc, scale:f.scale, devices:f.devices, wires:f.wires, walls:f.walls, risers:f.risers }))
+    meta:p.meta, rank:p.rank, priceMode:p.priceMode||'full', pricing:p.pricing, counts:p.counts, options:p.options, photos:p.photos||{}, drawingOptions:mergeDrawingOptions(p.drawingOptions), brief:mergeBrief(p.brief),
+    floors:p.floors.map(f=>({ id:f.id, name:f.name, imgSrc:f.imgSrc, scale:f.scale, devices:f.devices, wires:f.wires, walls:f.walls, risers:f.risers, survey:mergeFloorSurvey(f.survey) }))
   };
 }
 
@@ -1666,7 +1705,7 @@ function buildProjectFromData(data){
       devices:(Array.isArray(f.devices)?f.devices:[]).filter(Boolean),
       wires:(Array.isArray(f.wires)?f.wires:[]).filter(Boolean),
       walls:(Array.isArray(f.walls)?f.walls:[]).filter(Boolean),
-      risers:(Array.isArray(f.risers)?f.risers:[]).filter(Boolean) };
+      risers:(Array.isArray(f.risers)?f.risers:[]).filter(Boolean), survey:mergeFloorSurvey(f.survey) };
     if(fl.imgSrc){
       const im = new Image();
       // プロジェクト読込/自動保存復元は複数フロアの画像を並行して非同期ロードする。
@@ -1686,6 +1725,7 @@ function buildProjectFromData(data){
     options: mergeOptionsDefaults(data.options, pricing),
     photos: mergePhotos(data.photos), // 旧JSON(photosキーなし)は空オブジェクトで補完する
     drawingOptions: mergeDrawingOptions(data.drawingOptions),
+    brief: mergeBrief(data.brief),
     floors
   };
 }
@@ -1774,6 +1814,7 @@ function makeFreshProject(){
     options: makeDefaultOptions(pricing),
     photos:{},
     drawingOptions:mergeDrawingOptions(),
+    brief:mergeBrief(),
     rank:'A',
     priceMode:'full'
   };
@@ -3537,7 +3578,7 @@ function trayDeviceHtml(){
     <div class="traySection devicePanel" ${ui.devicePanel==='list'?'':'hidden'}><div class="trayLabel">配置済みの機器 / ${floor.devices.length}台</div>
       <input class="searchField" id="deviceSearch" type="search" aria-label="配置済み機器を検索" placeholder="番号・注釈・場所・型番で探す" value="${escapeHtml(ui.deviceQuery||'')}">
       <div class="deviceList" id="deviceList">${deviceListHtml()}</div>
-      <div class="sectionNote">一覧から選ぶと詳細を編集できます。機器情報はハンドブックにも反映されます。</div>
+      <button class="bigBtn" data-action="openProjectNotes">${ic('check')}<span>現地確認をまとめて記録</span></button><div class="sectionNote">一覧から選ぶと詳細を編集できます。機器情報はハンドブックにも反映されます。</div>
     </div>`;
 }
 
@@ -3675,6 +3716,14 @@ function trayOutputHtml(){
       </div>
       <div class="hint">見積書右上に会社名・部名・課名・担当者名をまとめます。住所・電話・FAXは出力しません。社名と新規案件の既定値は「設定」で変更できます。</div>
     </div>
+    <div class="exportCard">
+      <div class="eyebrow">SITE SURVEY / 現地調査</div>
+      <h3>${ic('check')}現地確認・調査票</h3>
+      <p>${escapeHtml(surveyProgressLabel(project.floors))}</p>
+      <button class="bigBtn primary" data-action="openProjectNotes">${ic('edit')}<span>確認事項・現地メモを記録</span></button>
+      <button class="bigBtn" data-action="openSurveyReport">${ic('pdf')}<span>調査票を出力 / PDF・印刷</span></button>
+      <p>フロアと機器番号で照合。金額を含まない調査票と確認一覧CSVを作成します。</p>
+    </div>
     <div class="exportCard handbook">
       <div class="eyebrow">HANDOVER / 引渡し</div>
       <h3>${ic('output')}ハンドブック用出力</h3>
@@ -3693,7 +3742,8 @@ function trayOutputHtml(){
     <div class="exportCard">
       <div class="eyebrow">PROPOSAL / 提案</div>
       <h3>${ic('slide')}提案書スライド</h3>
-      <p>配置図・機器構成・現地写真を16:9のスライドに。${project.floors.length}フロア分を作成します。</p>
+      <p>案件全体の構成・大概算と、${project.floors.length}フロアの配置図・現地写真を16:9に。写真が多い場合も続頁へ収録します。</p>
+      <button class="bigBtn" data-action="openProjectNotes" data-tab="brief">${ic('edit')}<span>目的・提案内容を入力</span></button>
       <div class="exportFormats"><button data-action="exportProposalFromTray">PowerPoint出力</button></div>
     </div>
     <div class="traySection">
@@ -3761,6 +3811,8 @@ function initTrayEvents(){
     if(act==='closeTray'){ui.trayStep=null;refreshAll();}
     else if(act==='devicePanel'){ui.devicePanel=b.dataset.panel;renderTray();els.tray.scrollTop=0;}
     else if(act==='openHandbook') launchHandbook();
+    else if(act==='openProjectNotes') openProjectNotes(b.dataset.tab);
+    else if(act==='openSurveyReport') void openSurveyPreview().catch(notifyHandbookError);
     else if(act==='selectDevice'){
       const dv=currentFloor().devices.find(d=>d.id===b.dataset.id);
       if(dv){ui.mode='select';ui.tool=null;ui.drawing=null;selectObj('device',dv,'record');revealSelectedDevice();}
@@ -4277,7 +4329,7 @@ function duplicateSelected(){
   }
   clone.id = uid(); clone.x += 24; clone.y += 24;
   // 新しい個体へIPやシリアルを持ち越さない。型番・設置場所は編集の起点として引き継ぐ。
-  delete clone.ipAddress; delete clone.serialNumber;
+  delete clone.ipAddress; delete clone.serialNumber; delete clone.survey;
   floor.devices.push(clone);
   ui.sel = { kind:'device', ref:clone };
   refreshAll();
@@ -4402,7 +4454,7 @@ function syncTopbarMeta(){
    21. キーボードショートカット
    ========================================================================= */
 function isEditableTarget(t){
-  return t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.isContentEditable);
+  return t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.tagName==='SELECT' || t.isContentEditable);
 }
 function initKeyboard(){
   document.addEventListener('keydown', e=>{
@@ -4411,7 +4463,7 @@ function initKeyboard(){
       scheduleRender();
     }
     // 入力中の削除やモーダル内操作で、背後の図面を編集しない。
-    if(document.querySelector('.modalOverlay.show, .hbOverlay'))return;
+    if(document.querySelector('.modalOverlay.show, .hbOverlay, .projectNotesOverlay'))return;
     const mod = e.metaKey || e.ctrlKey;
     if(mod && e.key.toLowerCase()==='s'){e.preventDefault();saveProjectFile();return;}
     if(isEditableTarget(e.target)){
@@ -4567,7 +4619,7 @@ function initEmptyStateButtons(){
 }
 
 function hasProjectWork(){
-  return project.floors.length>1 || !!(project.meta.title||project.meta.customer) ||
+  return project.floors.length>1 || !!(project.meta.title||project.meta.customer) || Object.values(mergeBrief(project.brief)).some(Boolean) || project.floors.some(f=>{const s=mergeFloorSurvey(f.survey);return s.date||s.surveyor||Object.values(s.checks).some(r=>r.status!=='todo'||r.note);}) ||
     project.floors.some(f=>f.imgSrc||f.devices.length||f.wires.length||f.walls.length||f.risers.length);
 }
 function selectedPhotoTarget(){
@@ -4597,7 +4649,7 @@ async function handleWorkspaceFile(file,target){
   }catch(error){toast(error.message,'warn');return false;}
 }
 function initWorkspaceImports(){
-  const blocked=()=>!!document.querySelector('.modalOverlay.show, .hbOverlay');
+  const blocked=()=>!!document.querySelector('.modalOverlay.show, .hbOverlay, .projectNotesOverlay');
   const inWorkspace=t=>els.canvasWrap.contains(t)||els.inspector.contains(t);
   document.addEventListener('dragover',e=>{
     if(!Array.from(e.dataTransfer?.types||[]).includes('Files'))return;
@@ -5109,7 +5161,7 @@ function buildExportableHtml(pricingData){
   const clone = document.documentElement.cloneNode(true);
   clone.querySelector('#canvasWrap')?.removeAttribute('data-drop-hint');
   // 配布用HTMLへ、案件の納入情報やハンドブックプレビューを焼き込まない。
-  clone.querySelectorAll('.hbOverlay').forEach(el=>el.remove());
+  clone.querySelectorAll('.hbOverlay,.projectNotesOverlay').forEach(el=>el.remove());
   ['tray','floorTabs','workspaceInfo','workflowHint','saveStatus','quoteNo','totalMain','totalTax','breakdownChips','checkBadge','moneyDrawer','checkPopover'].forEach(id=>{
     const el=clone.querySelector('#'+id);if(el){el.innerHTML='';el.classList.remove('open');}
   });
@@ -5452,8 +5504,10 @@ function validateQuotePrintLayout(html){
   }finally{proof.remove();}
 }
 async function printQuote(){
+  const owner=project;
   const ok = await confirmIfOutputHasErrors();
   if(!ok) return;
+  await prepareOutputImages(owner,false);
   const totals = NEXT_PURE.calcTotals(project);
   const printRows = buildQuotePrintRows(totals);
   const chunks = chunkPrintRows(printRows, QUOTE_TABLE_FIXED_ROWS);
@@ -5468,9 +5522,8 @@ async function printQuote(){
   stampPageNumbers(els.printRoot);
   await waitForPrintImages(els.printRoot);
   // 復元はafterprintを主とし、matchMedia('print')の変化も補助に使う(印刷に時間がかかる環境向け)。
-  // 万一どちらも発火しない場合の保険として60秒後にも復元する(以前の4秒は早すぎて印刷中に消えることがあった)
   let restored = false;
-  let mql = null, mqlHandler = null, fallbackTimer = null;
+  let mql = null, mqlHandler = null;
   const restore = ()=>{
     if(restored) return;
     restored = true;
@@ -5478,7 +5531,6 @@ async function printQuote(){
     scheduleRender();
     window.removeEventListener('afterprint', restore);
     if(mql && mqlHandler){ if(mql.removeEventListener) mql.removeEventListener('change', mqlHandler); else if(mql.removeListener) mql.removeListener(mqlHandler); }
-    clearTimeout(fallbackTimer);
   };
   window.addEventListener('afterprint', restore);
   if(window.matchMedia){
@@ -5486,8 +5538,8 @@ async function printQuote(){
     mqlHandler = (e)=>{ if(!e.matches) restore(); };
     if(mql.addEventListener) mql.addEventListener('change', mqlHandler); else if(mql.addListener) mql.addListener(mqlHandler);
   }
-  fallbackTimer = setTimeout(restore, 60000);
-  window.print();
+  // 印刷ダイアログを開いている間は時間経過で紙面を消さない。
+  try{window.print();}catch(error){restore();throw error;}
 }
 
 /* =========================================================================
@@ -5832,13 +5884,13 @@ function handbookPptxTableCellXml(text, opts){
     + `<a:tcPr marL="38100" marR="38100" marT="25400" marB="25400" anchor="ctr">${line('L')}${line('R')}${line('T')}${line('B')}`
     + `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill></a:tcPr></a:tc>`;
 }
-function handbookPptxTable(id, x, y, columns, rows, rowHeights){
+function handbookPptxTable(id, x, y, columns, rows, rowHeights, opts={}){
   const headerH = 27;
   const width = columns.reduce((sum,col)=>sum+col.w,0);
   const height = headerH + rowHeights.reduce((sum,h)=>sum+h,0);
   const grid = columns.map(col=>`<a:gridCol w="${emu(col.w)}"/>`).join('');
-  const header = `<a:tr h="${emu(headerH)}">${columns.map(col=>handbookPptxTableCellXml(col.head,{ align:'c', bold:true, size:760, fill:'#DCE9E0', color:'#1F3B31' })).join('')}</a:tr>`;
-  const body = rows.map((row,rowIndex)=>`<a:tr h="${emu(rowHeights[rowIndex])}">${columns.map(col=>handbookPptxTableCellXml(row[col.key],{ align:col.align })).join('')}</a:tr>`).join('');
+  const header = `<a:tr h="${emu(headerH)}">${columns.map(col=>handbookPptxTableCellXml(col.head,{ align:'c', bold:true, size:opts.headerSize||760, fill:'#DCE9E0', color:'#1F3B31' })).join('')}</a:tr>`;
+  const body = rows.map((row,rowIndex)=>`<a:tr h="${emu(rowHeights[rowIndex])}">${columns.map(col=>handbookPptxTableCellXml(row[col.key],{ align:col.align, size:opts.bodySize })).join('')}</a:tr>`).join('');
   return `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${id}" name="納入機器一覧"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>`
     + `<p:xfrm><a:off x="${emu(x)}" y="${emu(y)}"/><a:ext cx="${emu(width)}" cy="${emu(height)}"/></p:xfrm>`
     + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr firstRow="1"/><a:tblGrid>${grid}</a:tblGrid>${header}${body}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
@@ -6089,6 +6141,166 @@ async function openHandbookPreview(){
 /* =========================================================================
    22.7 明細CSV
    ========================================================================= */
+/* =========================================================================
+   案件メモ・現地確認。確認記録は金額計算から独立し、JSONとフロアUndoに保存。
+   ========================================================================= */
+let projectNotesOverlay = null;
+function surveyRows(floor,pricing=project.pricing){
+  const survey=mergeFloorSurvey(floor.survey),labels=deviceLabels(floor);
+  return SURVEY_CHECKS.map(([key,label])=>({key:'check:'+key,label,detail:'フロア共通',...survey.checks[key]}))
+    .concat(floor.devices.map(d=>({key:'device:'+d.id,label:labels[d.id]||'機器',detail:[d.location,deviceAnnotation(d),pricing.devices[d.type]?.label||d.type,d.model].filter(Boolean).join(' / '),deviceId:d.id,...mergeSurveyEntry(d.survey)})));
+}
+function surveyProgress(floors){
+  const rows=floors.flatMap(f=>surveyRows(f)),counts={total:rows.length,todo:0,followup:0,ok:0,na:0};
+  rows.forEach(row=>counts[row.status]++);return counts;
+}
+function surveyProgressLabel(floors){
+  const p=surveyProgress(floors);
+  return `確認済 ${p.ok} / 要対応 ${p.followup} / 未確認 ${p.todo} / 対象外 ${p.na}`;
+}
+function surveyStatusOptions(status){
+  return Object.entries(SURVEY_STATUS).map(([key,label])=>`<option value="${key}" ${status===key?'selected':''}>${label}</option>`).join('');
+}
+function closeProjectNotes(){
+  const overlay=projectNotesOverlay;if(!overlay)return;
+  document.removeEventListener('keydown',overlay._keyHandler,true);
+  overlay.remove();projectNotesOverlay=null;refreshAll();
+  if(overlay._returnFocus?.isConnected)overlay._returnFocus.focus();
+}
+function trapNotesFocus(e,overlay){
+  if(e.key!=='Tab')return;
+  const items=[...overlay.querySelectorAll('button,input,textarea,select,[tabindex="0"]')].filter(x=>!x.disabled&&x.getClientRects().length);
+  if(!items.length)return;
+  if(e.shiftKey&&document.activeElement===items[0]){e.preventDefault();items[items.length-1].focus();}
+  else if(!e.shiftKey&&document.activeElement===items[items.length-1]){e.preventDefault();items[0].focus();}
+}
+function renderProjectNotes(overlay){
+  const floor=project.floors[overlay._floorIndex]||currentFloor(),survey=mergeFloorSurvey(floor.survey),brief=mergeBrief(project.brief);
+  const tab=overlay._tab;
+  const placeholders={purpose:'例：通用口の出入りを記録し、受付から確認したい。',solution:'例：入口と通用口を中心に配置。各フロアの録画を機器室で管理する。',conditions:'例：既設ネットワークの利用は管理者確認後。夜間映像・録画日数は機種選定時に確認。',nextAction:'例：設置位置と施工時間をご確認後、機種・工法を確定して正式見積を提出。'};
+  overlay.innerHTML=`<div class="notesDialog"><header class="notesHeader"><div><h2>案件メモ・現地確認</h2><p>${escapeHtml(project.meta.title||'無題の案件')}</p></div><button class="hbButton" data-notes-action="close">閉じる</button></header>
+    <div class="notesTabs" role="tablist" aria-label="案件記録"><button role="tab" data-notes-tab="survey" aria-selected="${tab==='survey'}" class="${tab==='survey'?'active':''}">現地確認</button><button role="tab" data-notes-tab="brief" aria-selected="${tab==='brief'}" class="${tab==='brief'?'active':''}">提案メモ</button></div>
+    <div class="notesBody" role="tabpanel">${tab==='brief'?`
+      <p class="notesIntro">お客様に伝える内容を記入します。入力した項目だけを提案書の冒頭に追加します。</p>
+      ${BRIEF_FIELDS.map(([key,label])=>`<label class="notesField">${label}<textarea data-brief-field="${key}" rows="4" maxlength="2400" placeholder="${placeholders[key]}">${escapeHtml(brief[key])}</textarea></label>`).join('')}
+      <div class="sectionNote">金額と機器構成は配置データから自動作成。現地確認の内部メモは提案書へ自動転載しません。</div>`:`
+      <div class="notesFilters"><label>フロア<select data-notes-floor>${project.floors.map((f,i)=>`<option value="${i}" ${i===overlay._floorIndex?'selected':''}>${escapeHtml(f.name)}</option>`).join('')}</select></label><label>表示<select data-notes-filter><option value="all" ${!overlay._onlyPending?'selected':''}>すべて</option><option value="pending" ${overlay._onlyPending?'selected':''}>未確認・要対応</option></select></label></div>
+      <div class="notesFilters"><label>調査日<input type="date" data-survey-meta="date" value="${escapeHtml(survey.date)}"></label><label>調査担当<input data-survey-meta="surveyor" maxlength="120" placeholder="担当者名" value="${escapeHtml(survey.surveyor)}"></label></div>
+      <p class="notesProgress" aria-live="polite">${escapeHtml(surveyProgressLabel([floor]))}</p>
+      <p class="notesIntro">フロア共通の条件と各機器の設置予定を確認。要対応のメモには、内容・担当・次回確認日を残せます。</p>
+      <div class="notesRows">${surveyRows(floor).filter(r=>!overlay._onlyPending||['todo','followup'].includes(r.status)).map(row=>`<article class="surveyRow" data-survey-key="${escapeHtml(row.key)}"><div class="surveyRowHead"><div><strong>${escapeHtml(row.label)}</strong><p>${escapeHtml(row.detail)}</p></div><select data-survey-status aria-label="${escapeHtml(row.label)}の確認状況">${surveyStatusOptions(row.status)}</select></div>
+        <textarea data-survey-note aria-label="${escapeHtml(row.label)}の現地メモ" rows="2" maxlength="1600" placeholder="確認内容・要対応事項・担当・次回確認日">${escapeHtml(row.note)}</textarea>
+        ${row.deviceId?`<button class="surveyJump" data-notes-device="${escapeHtml(row.deviceId)}">図面で確認・機器情報を編集</button>`:''}</article>`).join('')||'<div class="listEmpty">未確認・要対応の項目はありません。</div>'}</div>
+      <p class="sectionNote">「確認済」は入力した担当者の記録です。自動の構成チェックとは別です。複製した機器は未確認に戻ります。</p>`}</div>
+    <footer class="notesFooter"><span>変更は案件に保存されます</span>${tab==='survey'?'<button class="hbButton" data-notes-action="csv">確認一覧CSV</button><button class="hbButton hbButtonPrimary" data-notes-action="report">調査票プレビュー</button>':'<button class="hbButton hbButtonPrimary" data-notes-action="proposal">提案書PowerPoint</button>'}</footer></div>`;
+}
+function openProjectNotes(initialTab){
+  if(projectNotesOverlay){projectNotesOverlay.querySelector('[data-notes-action="close"]').focus();return;}
+  const overlay=document.createElement('div');overlay.className='projectNotesOverlay';
+  overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','案件メモ・現地確認');
+  overlay._owner=project;overlay._floorIndex=ui.floorIdx;overlay._tab=initialTab==='brief'?'brief':'survey';overlay._onlyPending=false;overlay._returnFocus=document.activeElement;
+  projectNotesOverlay=overlay;renderProjectNotes(overlay);document.body.appendChild(overlay);
+  const current=()=>overlay===projectNotesOverlay&&project===overlay._owner;
+  const entryFor=el=>{
+    const floor=project.floors[overlay._floorIndex],key=el.closest('[data-survey-key]')?.dataset.surveyKey;
+    if(!floor||!key)return null;
+    if(key.startsWith('device:')){const dv=floor.devices.find(d=>d.id===key.slice(7));if(!dv)return null;dv.survey=mergeSurveyEntry(dv.survey);return dv.survey;}
+    floor.survey=mergeFloorSurvey(floor.survey);return floor.survey.checks[key.slice(6)]||null;
+  };
+  // フロアの切替は図面の表示状態を変えない。Undo記録だけ対象フロアへ切り替えて直ちに戻す。
+  overlay.addEventListener('focusin',e=>{
+    if(!current()||!e.target.matches('[data-survey-status],[data-survey-note],[data-survey-meta]'))return;
+    const previous=ui.floorIdx;try{ui.floorIdx=overlay._floorIndex;pushHistory();}finally{ui.floorIdx=previous;}
+  });
+  overlay.addEventListener('input',e=>{
+    if(!current())return;
+    const t=e.target,briefKey=t.dataset.briefField,metaKey=t.dataset.surveyMeta;
+    if(briefKey){project.brief=mergeBrief(project.brief);project.brief[briefKey]=t.value;}
+    else if(metaKey){const floor=project.floors[overlay._floorIndex];floor.survey=mergeFloorSurvey(floor.survey);floor.survey[metaKey]=t.value;}
+    else if(t.matches('[data-survey-note]')){const entry=entryFor(t);if(entry)entry.note=t.value;}
+    else return;
+    markDirty();
+  });
+  overlay.addEventListener('change',e=>{
+    if(!current())return;const t=e.target;
+    if(t.matches('[data-notes-floor]')){overlay._floorIndex=Number(t.value);renderProjectNotes(overlay);overlay.querySelector('[data-notes-floor]').focus();}
+    else if(t.matches('[data-notes-filter]')){overlay._onlyPending=t.value==='pending';renderProjectNotes(overlay);overlay.querySelector('[data-notes-filter]').focus();}
+    else if(t.matches('[data-survey-status]')){const entry=entryFor(t);if(entry)entry.status=t.value;overlay.querySelector('.notesProgress').textContent=surveyProgressLabel([project.floors[overlay._floorIndex]]);markDirty();}
+  });
+  overlay.addEventListener('click',e=>{
+    const tab=e.target.closest('[data-notes-tab]');
+    if(tab){overlay._tab=tab.dataset.notesTab;renderProjectNotes(overlay);overlay.querySelector(`[data-notes-tab="${overlay._tab}"]`).focus();return;}
+    const device=e.target.closest('[data-notes-device]');
+    if(device){const idx=overlay._floorIndex,dv=project.floors[idx].devices.find(d=>d.id===device.dataset.notesDevice);closeProjectNotes();if(dv){ui.floorIdx=idx;ui.mode='select';ui.tool=null;ui.drawing=null;selectObj('device',dv,'record');revealSelectedDevice();}return;}
+    const action=e.target.closest('[data-notes-action]')?.dataset.notesAction;
+    if(action==='close')closeProjectNotes();
+    else if(action==='csv')exportSurveyCsv();
+    else if(action==='report'){closeProjectNotes();void openSurveyPreview().catch(notifyHandbookError);}
+    else if(action==='proposal')void exportProposalPptx().catch(error=>toast(error.message,'warn'));
+  });
+  overlay._keyHandler=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeProjectNotes();}else trapNotesFocus(e,overlay);};
+  document.addEventListener('keydown',overlay._keyHandler,true);overlay.querySelector('[data-notes-action="close"]').focus();
+}
+function buildSurveyCsvContent(p){
+  const rows=[['案件名','フロア','調査日','調査担当','番号・確認項目','設置場所・機器','状況','現地メモ']];
+  for(const floor of p.floors){const survey=mergeFloorSurvey(floor.survey);for(const row of surveyRows(floor,p.pricing))rows.push([p.meta.title,floor.name,survey.date,survey.surveyor,row.label,row.detail,SURVEY_STATUS[row.status],row.note]);}
+  return '\uFEFF'+rows.map(row=>row.map(NEXT_PURE.toCsvField).join(',')).join('\r\n');
+}
+function exportSurveyCsv(){
+  downloadBlob(`VAS現地確認_${(project.meta.title||'無題').replace(/[\\/:*?"<>|]/g,'_')}.csv`,new Blob([buildSurveyCsvContent(project)],{type:'text/csv;charset=utf-8;'}));
+  toast('全フロアの確認一覧CSVを書き出しました','ok');
+}
+function surveyPageHtml(floor,rows,issuedAt){
+  const survey=mergeFloorSurvey(floor.survey);
+  return `<section class="hbPage surveyPage">${handbookHeaderHtml('現地調査票',floor,issuedAt)}
+    <div class="surveyMeta">調査日: ${escapeHtml(survey.date||'未記入')}　調査担当: ${escapeHtml(survey.surveyor||'未記入')}<br>${escapeHtml(surveyProgressLabel([floor]))}</div>
+    <table class="surveyTable"><colgroup><col style="width:33%"><col style="width:13%"><col style="width:54%"></colgroup><thead><tr><th>確認項目・機器</th><th>状況</th><th>確認内容・要対応事項</th></tr></thead><tbody>${rows.map(row=>`<tr data-survey-report-key="${escapeHtml(row.key)}"><td><b>${escapeHtml(row.label)}</b><br>${escapeHtml(row.detail)}</td><td>${escapeHtml(SURVEY_STATUS[row.status])}</td><td>${escapeHtml(row.note)||'　'}</td></tr>`).join('')}</tbody></table>
+    <div class="hbPageFooter"><span>フロア名とC/E番号で配置図を照合。空欄は現地で記入できます。</span><span data-survey-page-number></span></div></section>`;
+}
+function buildSurveyDocumentHtml(floors,captures,issuedAt){
+  const pages=[],proof=document.createElement('div');
+  proof.style.cssText='position:absolute;left:-12000px;top:0;visibility:hidden;width:210mm';document.body.appendChild(proof);
+  try{
+    const fits=html=>{proof.innerHTML=html;const page=proof.firstElementChild,table=page.querySelector('.surveyTable'),footer=page.querySelector('.hbPageFooter');return table.getBoundingClientRect().bottom+12<=footer.getBoundingClientRect().top&&[...page.querySelectorAll('td,.hbPageHeader,.surveyMeta')].every(x=>x.scrollWidth<=x.clientWidth+1);};
+    floors.forEach((floor,fi)=>{
+      pages.push(handbookFloorPageHtml(floor,captures[fi],issuedAt,0,0).replace('顧客運用ハンドブック - 機器配置図','現地調査票 - 機器配置図'));
+      let chunk=[];
+      for(const row of surveyRows(floor)){
+        if(fits(surveyPageHtml(floor,[...chunk,row],issuedAt))){chunk.push(row);continue;}
+        if(chunk.length)pages.push(surveyPageHtml(floor,chunk,issuedAt));
+        chunk=[row];
+        if(!fits(surveyPageHtml(floor,chunk,issuedAt)))throw new Error(`${floor.name} / ${row.label}: 文字量がA4の1ページを超えています。現地メモまたは案件情報を短くしてください。`);
+      }
+      if(chunk.length)pages.push(surveyPageHtml(floor,chunk,issuedAt));
+    });
+    proof.innerHTML=pages.join('');
+    proof.querySelectorAll('.hbPage').forEach((page,i)=>{page.querySelector('.hbPageFooter span:last-child').textContent=`${i+1} / ${pages.length}`;});
+    return proof.innerHTML;
+  }finally{proof.remove();}
+}
+async function openSurveyPreview(){
+  if(handbookOverlay||handbookOpeningBusy)return;
+  handbookOpeningBusy=true;
+  const owner=project,floors=project.floors.slice(),issuedAt=new Date();
+  const overlay=document.createElement('div');overlay.className='hbOverlay surveyOverlay';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','現地調査票プレビュー');
+  overlay._hbReturnFocus=document.activeElement;
+  overlay.innerHTML='<div class="hbDialog"><div class="hbToolbar"><div class="hbToolbarHeading"><h2 class="hbToolbarTitle">現地調査票（A4縦）</h2><div class="hbSummary">図面を準備しています...</div></div><div class="hbActions"><button class="hbButton" data-hb-action="close">閉じる</button><button class="hbButton hbButtonPrimary" data-hb-action="print" disabled>PDF・印刷</button></div></div><div class="hbPreview"></div></div>';
+  handbookOverlay=overlay;document.body.appendChild(overlay);
+  overlay._hbEscapeHandler=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeHandbookPreview(overlay);}else trapNotesFocus(e,overlay);};
+  document.addEventListener('keydown',overlay._hbEscapeHandler,true);
+  overlay.querySelector('[data-hb-action="close"]').onclick=()=>closeHandbookPreview(overlay);
+  overlay.querySelector('[data-hb-action="print"]').onclick=()=>printHandbookFromPreview(overlay).catch(notifyHandbookError);
+  overlay.querySelector('[data-hb-action="close"]').focus();
+  try{
+    const captures=await captureHandbookFloors(floors);
+    if(!overlay.isConnected||project!==owner)return;
+    overlay._hbHtml=buildSurveyDocumentHtml(floors,captures,issuedAt);overlay.querySelector('.hbPreview').innerHTML=overlay._hbHtml;
+    overlay.querySelector('.hbSummary').textContent=`全${floors.length}フロア / ${overlay.querySelectorAll('.hbPage').length}ページ / 金額なし`;
+    overlay.querySelector('[data-hb-action="print"]').disabled=false;
+  }catch(error){if(overlay.isConnected)overlay.querySelector('.hbPreview').textContent=error.message;throw error;}
+  finally{handbookOpeningBusy=false;}
+}
+
 function buildCsvContent(project){
   const totals = NEXT_PURE.calcTotals(project);
   const lines = [];
@@ -6104,6 +6316,8 @@ function buildCsvContent(project){
   for(const o of totals.optionDetails){
     lines.push(['工事費', o.label+'(オプション)', o.mode==='rate'?o.value+'%':o.value, 1, o.fee].map(NEXT_PURE.toCsvField).join(','));
   }
+  const rankDelta=totals.pretax-Math.round(totals.subtotal+totals.optionFee);
+  if(rankDelta)lines.push(['工事費','ランク調整','—','1式',rankDelta].map(NEXT_PURE.toCsvField).join(','));
   lines.push([].map(NEXT_PURE.toCsvField).join(','));
   lines.push(['','税抜合計','','',totals.pretax].map(NEXT_PURE.toCsvField).join(','));
   lines.push(['','(参考)税込','','',totals.total].map(NEXT_PURE.toCsvField).join(','));
@@ -6247,71 +6461,36 @@ const PPT_RT = {
 /* ---- スライド1枚分の組版 ----
    引数 model = { titleText, subText, floorName, plot:{rid,w,h}, legend, photos:[{rid,label,w,h}],
                   totalIncTax, totalExTax, floorNote } */
-const PPT_LEGEND_MAX = 14;
-const PPT_PHOTO_MAX = 6;
+const PPT_LEGEND_MAX = 12;
+const PPT_PHOTO_MAX = 4;
 function pptxBuildSlideShapes(model){
-  const S = [];
-  let id = 2; // id=1 はspTreeのルートグループが使用済み
-  const MG = 28;
-  const hasPhotos = model.photos.length>0;
-  // ヘッダー
-  S.push(pptxTextBox(id++, MG, 16, 600, 28, { text:model.titleText, size:1800, bold:true, color:'#0F172A' }));
-  S.push(pptxTextBox(id++, 500, 24, PPT_W_PT-MG-500, 18, { text:model.subText, size:900, color:'#64748B', align:'r' }));
-  S.push(pptxRect(id++, MG, 52, PPT_W_PT-MG*2, 2.4, '#E02434'));
-
-  // 左: 配置プロット
-  const plotBoxX = MG, plotBoxY = 80, plotBoxW = 600;
-  const plotBoxH = hasPhotos ? 312 : 430;
-  S.push(pptxTextBox(id++, MG, 60, 400, 16, { text:model.floorName+' 配置プロット', size:1000, bold:true, color:'#334155' }));
-  S.push(pptxRect(id++, plotBoxX, plotBoxY, plotBoxW, plotBoxH, '#EEF1F6', { line:'#CBD5E1', lineW:0.75 }));
-  const pr = NEXT_PURE.fitRect(model.plot.w, model.plot.h, plotBoxX+4, plotBoxY+4, plotBoxW-8, plotBoxH-8);
-  S.push(pptxPic(id++, model.plot.rid, pr.x, pr.y, pr.w, pr.h, model.floorName+'配置図'));
-
-  // 右: 概算金額カード(価格区分ラベル付き。ユースのみは注意色で明示する)
-  const rx = 648, rw = PPT_W_PT-MG-648;
-  const useOnly = model.priceMode==='useOnly';
-  S.push(pptxRect(id++, rx, plotBoxY, rw, 78, '#F8FAFC', { line: useOnly?'#F59E0B':'#E2E8F0', lineW: useOnly?1.25:0.75, round:true }));
-  S.push(pptxTextBox(id++, rx+14, plotBoxY+10, rw-28, 14, { text:'大概算金額(税込) / 正式見積ではありません', size:800, color:'#64748B' }));
-  S.push(pptxTextBox(id++, rx+14, plotBoxY+10, rw-28, 14, { text:NEXT_PURE.priceModeLabel(model.priceMode), size:900, bold:true, color: useOnly?'#B45309':'#64748B', align:'r' }));
-  S.push(pptxTextBox(id++, rx+14, plotBoxY+26, rw-28, 34, { text:'¥'+model.totalIncTax.toLocaleString(), size:2400, bold:true, color:'#0F172A' }));
-  S.push(pptxTextBox(id++, rx+14, plotBoxY+60, rw-28, 14, { text:'(税抜 ¥'+model.totalExTax.toLocaleString()+')'+(useOnly?' ※機器本体費を含みません':''), size:800, color: useOnly?'#B45309':'#64748B' }));
-
-  // 右: 機器構成
-  let ly = plotBoxY + 92;
-  S.push(pptxTextBox(id++, rx, ly, rw, 16, { text:'機器構成', size:1100, bold:true, color:'#0F172A' }));
-  ly += 22;
-  const shown = model.legend.slice(0, PPT_LEGEND_MAX);
-  for(const row of shown){
-    S.push(pptxRect(id++, rx+2, ly+3, 10, 10, row.color, { round:true }));
-    S.push(pptxTextBox(id++, rx+18, ly, rw-18-96, 16, { text:row.label, size:900, color:'#334155' }));
-    S.push(pptxTextBox(id++, rx+rw-96, ly, 96, 16, { text:row.qtyLabel, size:900, bold:true, color:'#0F172A', align:'r' }));
-    ly += 21;
-  }
-  if(model.legend.length>shown.length){
-    S.push(pptxTextBox(id++, rx+18, ly, rw-18, 16, { text:'ほか '+(model.legend.length-shown.length)+' 件', size:800, color:'#94A3B8' }));
-    ly += 21;
-  }
-  if(model.floorNote){
-    S.push(pptxTextBox(id++, rx, ly+6, rw, 14, { text:model.floorNote, size:800, color:'#64748B' }));
-  }
-
-  // 下段: カメラ実写画像
+  const S=[proposalHeaderShapes(model.titleText,model.subText)];let id=5;
+  const hasPhotos=model.photos.length>0,box={x:28,y:126,w:600,h:hasPhotos?266:380};
+  S.push(proposalText(id++,28,100,600,22,model.floorName+' 配置図',1300,{bold:true}));
+  const fit=NEXT_PURE.fitRect(model.plot.w,model.plot.h,box.x,box.y,box.w,box.h);
+  S.push(pptxPic(id++,model.plot.rid,fit.x,fit.y,fit.w,fit.h,model.floorName+'配置図'));
+  const x=652,w=280,useOnly=model.priceMode==='useOnly';
+  S.push(proposalText(id++,x,106,w,20,'案件全体の大概算（税込）',1100));
+  S.push(proposalText(id++,x,135,w,40,'¥'+model.totalIncTax.toLocaleString(),2400,{bold:true}));
+  S.push(proposalText(id++,x,177,w,20,'税抜 ¥'+model.totalExTax.toLocaleString(),1000));
+  S.push(proposalText(id++,x,201,w,20,NEXT_PURE.priceModeLabel(model.priceMode)+(useOnly?' / 本体費を含みません':''),1000,{color:useOnly?'#8A5618':'#64748B'}));
+  S.push(proposalText(id++,x,228,w,20,'このフロアの機器・配線構成',1100,{bold:true}));
+  const shown=proposalFloorLegendRows(model.legend);let ly=254;
+  shown.forEach(row=>{const height=proposalLegendRowHeight(row,204,900);
+    S.push(proposalText(id++,x,ly,204,height,row.label,900));
+    S.push(proposalText(id++,x+208,ly,72,height,row.qtyLabel,900,{align:'r',bold:true}));ly+=height;
+  });
+  if(model.legend.length>shown.length)S.push(proposalText(id++,x,474,w,17,'残りの構成は続きのページに掲載',850,{color:'#64748B'}));
   if(hasPhotos){
-    S.push(pptxTextBox(id++, MG, 400, 400, 16, { text:'現場写真（機器・カメラ映像）', size:1000, bold:true, color:'#334155' }));
-    const thumbs = model.photos.slice(0, PPT_PHOTO_MAX);
-    const tw = 136, th = 102, gap = 10, ty = 418; // 4:3のサムネイル枠。写真は縦横比を保って内接させる
-    thumbs.forEach((ph, i)=>{
-      const tx = MG + i*(tw+gap);
-      S.push(pptxRect(id++, tx, ty, tw, th, '#F1F5F9', { line:'#CBD5E1', lineW:0.75 }));
-      const fr = NEXT_PURE.fitRect(ph.w, ph.h, tx+2, ty+2, tw-4, th-4);
-      S.push(pptxPic(id++, ph.rid, fr.x, fr.y, fr.w, fr.h, ph.label));
-      S.push(pptxTextBox(id++, tx, ty+th+4, tw, 12, { text:ph.label, size:800, bold:true, color:'#334155', align:'c' }));
+    S.push(proposalText(id++,28,397,600,18,'現地写真'+(model.photos.length>PPT_PHOTO_MAX?' / 続きのページあり':''),1000,{bold:true}));
+    model.photos.slice(0,PPT_PHOTO_MAX).forEach((ph,i)=>{
+      const x=28+i*150,fit=NEXT_PURE.fitRect(ph.w,ph.h,x,420,140,82);
+      S.push(pptxPic(id++,ph.rid,fit.x,fit.y,fit.w,fit.h,ph.label));
+      S.push(proposalText(id++,x,506,140,16,ph.label,900,{bold:true,align:'c'}));
     });
-    if(model.photos.length>thumbs.length){
-      const restX = MG + thumbs.length*(tw+gap);
-      S.push(pptxTextBox(id++, restX, ty+44, 160, 16, { text:'ほか '+(model.photos.length-thumbs.length)+' 枚', size:900, color:'#94A3B8' }));
-    }
   }
+  if(model.floorNote)S.push(proposalText(id++,652,490,280,16,model.floorNote,800));
+  S.push(proposalText(id++,652,510,280,25,'予算検討用の大概算です。正式見積ではありません。',800,{color:'#8A5618'}));
   return S.join('');
 }
 
@@ -6349,7 +6528,7 @@ function buildProposalSlideData(){
       media.push({ name:`image${idx}.jpeg`, data:dataUrlToBytes(p.src) });
       const rid = 'rId'+(rels.length+2);
       rels.push({ id:rid, type:PPT_RT.image, target:`../media/image${idx}.jpeg` });
-      photos.push({ rid, label:(labels[dv.id]||'機器'), w:p.w||4, h:p.h||3 });
+      photos.push({ rid, label:(labels[dv.id]||'機器'), caption:dv.location||deviceAnnotation(dv), w:p.w||4, h:p.h||3 });
     }
     slides.push({
       rels,
@@ -6435,11 +6614,115 @@ function buildPptxPackage(slideDefs, media, title, wPt, hPt){
   return NEXT_PURE.zipStore(files);
 }
 
+// 長文は継続スライドへ送り、案件名など固定欄の過大入力は欠落させず明示する。
+function proposalText(id,x,y,w,h,text,size=1200,opts={}){
+  const lines=quotePptxWrapText(String(text??''),Math.max(1,w/(size/100)*.94));
+  if(lines.length*(size/100)*1.35>h+1)throw new Error('提案書の固定欄に文字が収まりません。案件名・顧客名・担当者名・機器名称を短くしてください。');
+  return pptxTextBox(id,x,y,w,h,lines.map(line=>({text:line,size,color:'#253938',...opts})));
+}
+function proposalHeaderShapes(title,subText){
+  const heading=String(title||'').replace(/\s+/g,' '),sub=String(subText||'').replace(/\s+/g,' ');
+  const size=[1800,1600,1400].find(n=>quotePptxWrapText(heading,904/(n/100)*.94).length*(n/100)*1.35<=50)||1400;
+  return proposalText(2,28,12,904,50,heading,size,{bold:true})+
+    proposalText(3,28,64,904,26,sub,900,{color:'#64748B'})+
+    pptxRect(4,28,91,904,1.5,'#167568');
+}
+function proposalOverviewDefs(title,subText){
+  const totals=NEXT_PURE.calcTotals(project),p=project;
+  const defs=[];
+  for(let start=0;start<p.floors.length;start+=8){
+    const S=[proposalHeaderShapes(title,subText)];let id=5;
+    S.push(proposalText(id++,28,106,904,30,start?'案件全体の構成（続き）':'案件全体の構成と大概算',1700,{bold:true}));
+    S.push(proposalText(id++,28,150,500,24,`全${p.floors.length}フロア / 機器${p.floors.reduce((n,f)=>n+f.devices.length,0)}台 / ${NEXT_PURE.priceModeLabel(p.priceMode)}`,1300));
+    S.push(proposalText(id++,550,145,382,38,`税込 ¥${totals.total.toLocaleString()}`,2500,{bold:true,align:'r'}));
+    S.push(proposalText(id++,550,184,382,20,`税抜 ¥${totals.pretax.toLocaleString()} / 消費税 ¥${totals.tax.toLocaleString()}`,1000,{align:'r'}));
+    const columns=[{key:'floor',head:'フロア',w:480},{key:'devices',head:'機器数',w:120},{key:'wires',head:'図面上の配線長',w:304}];
+    const rows=p.floors.slice(start,start+8).map(f=>{
+      const length=f.wires.reduce((n,w)=>n+NEXT_PURE.polylineLength(w.pts),0),scaled=validWireScale(f.scale?.mPerPx);
+      return {floor:f.name,devices:`${f.devices.length}台`,wires:!f.wires.length?'配線の登録なし':scaled?`${(length*f.scale.mPerPx).toFixed(2)} m`:'縮尺未設定・配線費未計上'};
+    });
+    // 既存の編集可能テーブルを再利用。長いフロア名は明示エラーにする。
+    rows.forEach(row=>{if(quotePptxWrapText(row.floor,37).length>1)throw new Error('提案書のフロア名が長すぎます。短くして再出力してください。');});
+    S.push(handbookPptxTable(id++,28,220,columns,rows,rows.map(()=>28),{headerSize:1100,bodySize:1200}));
+    S.push(proposalText(id++,28,490,904,18,QUOTE_ROUGH_NOTICE+(p.priceMode==='useOnly'?' / 機器本体費は含みません。':''),1000,{color:'#8A5618'}));
+    S.push(proposalText(id++,28,513,904,16,'配線長は図面上の参考値です。実際の施工距離・機種・工法等は現地確認後に確定します。',800,{color:'#64748B'}));
+    defs.push({shapesXml:S.join(''),rels:[]});
+  }
+  // 短い提案文は1枚にまとめ、文字量が増えたときだけ続きを作る。
+  let notes=[],nid=6,ny=150;
+  const flush=()=>{if(notes.length){defs.push({shapesXml:proposalHeaderShapes(title,subText)+proposalText(5,28,106,904,28,'提案の要点',1700,{bold:true})+notes.join(''),rels:[]});notes=[];nid=6;ny=150;}};
+  for(const [key,label] of BRIEF_FIELDS){
+    const value=mergeBrief(p.brief)[key].trim();if(!value)continue;
+    const lines=quotePptxWrapText(value,57);let offset=0;
+    while(offset<lines.length){
+      if(ny+65>518)flush();
+      notes.push(proposalText(nid++,28,ny,904,24,label+(offset?'（続き）':''),1400,{bold:true,color:'#167568'}));ny+=28;
+      const count=Math.max(1,Math.floor((518-ny-12)/20)),part=lines.slice(offset,offset+count);
+      notes.push(pptxTextBox(nid++,36,ny,888,part.length*20,part.map(text=>({text,size:1400,color:'#253938'}))));
+      offset+=part.length;ny+=part.length*20+16;
+      if(offset<lines.length)flush();
+    }
+  }
+  flush();
+  return defs;
+}
+function proposalPhotoPageShapes(model,photos,page){
+  const S=[proposalHeaderShapes(model.titleText,model.subText)];let id=5;
+  S.push(proposalText(id++,28,102,904,28,`${model.floorName} 現地写真（続き ${page}）`,1500,{bold:true}));
+  photos.forEach((ph,i)=>{
+    const x=28+(i%3)*306,y=142+Math.floor(i/3)*190,w=286,h=145;
+    const fit=NEXT_PURE.fitRect(ph.w,ph.h,x,y,w,h);
+    S.push(pptxPic(id++,ph.rid,fit.x,fit.y,fit.w,fit.h,ph.label));
+    S.push(proposalText(id++,x,y+h+5,w,34,[ph.label,ph.caption].filter(Boolean).join(' / '),900));
+  });return S.join('');
+}
+function proposalLegendRowHeight(row,width=700,size=1200){return Math.max(size<=900?18:28,quotePptxWrapText(row.label,width/(size/100)*.94).length*(size/100)*1.4+(size<=900?4:8));}
+function proposalFloorLegendRows(rows){
+  let height=0;const shown=[];for(const row of rows){const next=proposalLegendRowHeight(row,204,900);if(height+next>215)break;height+=next;shown.push(row);}return shown;
+}
+function proposalLegendChunks(rows){
+  const chunks=[];let chunk=[],height=0;for(const row of rows){const h=proposalLegendRowHeight(row);if(h>345)throw new Error('構成項目の名称が長すぎて提案書に収まりません。短くしてください。');if(height+h>345){chunks.push(chunk);chunk=[];height=0;}chunk.push(row);height+=h;}if(chunk.length)chunks.push(chunk);return chunks;
+}
+function proposalLegendPageShapes(model,rows,page){
+  const S=[proposalHeaderShapes(model.titleText,model.subText)];let id=5;
+  S.push(proposalText(id++,28,108,904,28,`${model.floorName} 機器・配線構成（続き ${page}）`,1500,{bold:true}));
+  const columns=[{key:'label',head:'機器・工事項目',w:700},{key:'qtyLabel',head:'数量',w:204}];
+  S.push(handbookPptxTable(id++,28,152,columns,rows,rows.map(row=>proposalLegendRowHeight(row)),{headerSize:1100,bodySize:1200}));return S.join('');
+}
+function buildProposalDefinitions(slides,title){
+  const defs=proposalOverviewDefs(title,slides[0]?.model.subText||'');
+  slides.forEach(s=>{
+    defs.push({shapesXml:pptxBuildSlideShapes(s.model),rels:s.rels});
+    for(let start=PPT_PHOTO_MAX;start<s.model.photos.length;start+=6)defs.push({shapesXml:proposalPhotoPageShapes(s.model,s.model.photos.slice(start,start+6),1+(start-PPT_PHOTO_MAX)/6),rels:s.rels});
+    proposalLegendChunks(s.model.legend.slice(proposalFloorLegendRows(s.model.legend).length)).forEach((rows,i)=>defs.push({shapesXml:proposalLegendPageShapes(s.model,rows,i+1),rels:[]}));
+  });return defs;
+}
+// 背景画像はすべての見積・提案出力で待機する。読込失敗を白紙として出力しない。
+async function prepareOutputImages(owner,includePhotos){
+  const floors=owner.floors.slice(),sources=floors.map(f=>f.imgSrc);
+  const unchanged=()=>project===owner&&owner.floors.length===floors.length&&floors.every((f,i)=>owner.floors[i]===f&&f.imgSrc===sources[i]);
+  const backgrounds=await Promise.all(floors.map(loadHandbookFloorBackground));
+  if(!unchanged())throw new Error('図面の準備中に案件が変更されました。もう一度出力してください。');
+  floors.forEach((f,i)=>{if(backgrounds[i])f.img=backgrounds[i];});
+  if(includePhotos){
+    const ids=[...new Set(floors.flatMap(f=>f.devices.map(d=>d.photoId).filter(Boolean)))];
+    const photoSources=ids.map(id=>owner.photos?.[id]?.src);
+    await Promise.all(ids.map(async id=>{
+      const photo=owner.photos?.[id];if(!photo)throw new Error('機器の写真が見つかりません。写真を選び直すか、実写画像を非表示にしてください。');
+      try{await loadHandbookFloorBackground({imgSrc:photo.src});}catch(e){throw new Error(`現地写真を読み込めませんでした: ${photo.name||id}`);}
+    }));
+    await preloadPhotoImages();
+    const currentIds=[...new Set(floors.flatMap(f=>f.devices.map(d=>d.photoId).filter(Boolean)))];
+    if(!unchanged()||JSON.stringify(ids)!==JSON.stringify(currentIds)||ids.some((id,i)=>owner.photos?.[id]?.src!==photoSources[i]))throw new Error('画像の準備中に案件・図面・写真が変更されました。もう一度出力してください。');
+    if(ids.some(id=>!photoImage(id)))throw new Error('現地写真の準備が完了していません。もう一度出力してください。');
+  }
+}
+
 function buildProposalPptxBytes(){
   const { slides, media, title } = buildProposalSlideData();
   if(slides.length===0) throw new Error('出力するフロアがありません');
   return buildPptxPackage(
-    slides.map(s=>({ shapesXml: pptxBuildSlideShapes(s.model), rels: s.rels })),
+    buildProposalDefinitions(slides,title),
     media, title, PPT_W_PT, PPT_H_PT);
 }
 
@@ -6675,13 +6958,16 @@ function buildQuotePptxBytes(){
 }
 
 async function exportQuotePptx(){
-  const ok = await confirmIfOutputHasErrors();
-  if(!ok) return;
-  const bytes = buildQuotePptxBytes();
-  const modeSuffix = project.priceMode==='useOnly' ? '_ユースのみ' : '';
-  const filename = `VAS見積書_${(project.meta.title||'無題').replace(/[\\/:*?"<>|]/g,'_')}${modeSuffix}.pptx`;
-  downloadBlob(filename, new Blob([bytes], { type:'application/vnd.openxmlformats-officedocument.presentationml.presentation' }));
-  toast(`見積書(pptx)を書き出しました(${NEXT_PURE.priceModeLabel(project.priceMode)})`, 'ok');
+  if(state.outputBusy)return;state.outputBusy=true;
+  try{
+    const owner=project;
+    if(!await confirmIfOutputHasErrors()||project!==owner)return;
+    await prepareOutputImages(owner,false);
+    const bytes=buildQuotePptxBytes(),modeSuffix=project.priceMode==='useOnly'?'_ユースのみ':'';
+    const filename=`VAS見積書_${(project.meta.title||'無題').replace(/[\\/:*?"<>|]/g,'_')}${modeSuffix}.pptx`;
+    downloadBlob(filename,new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'}));
+    toast(`見積書(pptx)を書き出しました(${NEXT_PURE.priceModeLabel(project.priceMode)})`,'ok');
+  }finally{state.outputBusy=false;}
 }
 
 // 実写画像は<img>のデコード完了まではcanvasへ描けない。書き出しは同期処理なので、
@@ -6704,14 +6990,18 @@ function preloadPhotoImages(){
 }
 
 async function exportProposalPptx(){
-  const ok = await confirmIfOutputHasErrors();
-  if(!ok) return;
-  await preloadPhotoImages();
-  const bytes = buildProposalPptxBytes();
-  const modeSuffix = project.priceMode==='useOnly' ? '_ユースのみ' : '';
-  const filename = `VAS提案書_${(project.meta.title||'無題').replace(/[\\/:*?"<>|]/g,'_')}${modeSuffix}.pptx`;
-  downloadBlob(filename, new Blob([bytes], { type:'application/vnd.openxmlformats-officedocument.presentationml.presentation' }));
-  toast(`提案書スライドを書き出しました(${project.floors.length}枚・${NEXT_PURE.priceModeLabel(project.priceMode)}${ui.showPhotos?'':'・実写画像なし'})`, 'ok');
+  if(state.outputBusy)return;state.outputBusy=true;
+  try{
+    const owner=project;
+    if(!await confirmIfOutputHasErrors()||project!==owner)return;
+    await prepareOutputImages(owner,ui.showPhotos);
+    const {slides,media,title}=buildProposalSlideData(),defs=buildProposalDefinitions(slides,title);
+    const bytes=buildPptxPackage(defs,media,title,PPT_W_PT,PPT_H_PT);
+    const modeSuffix=project.priceMode==='useOnly'?'_ユースのみ':'';
+    const filename=`VAS提案書_${(project.meta.title||'無題').replace(/[\\/:*?"<>|]/g,'_')}${modeSuffix}.pptx`;
+    downloadBlob(filename,new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'}));
+    toast(`提案書を書き出しました(${defs.length}枚・${NEXT_PURE.priceModeLabel(project.priceMode)})`,'ok');
+  }finally{state.outputBusy=false;}
 }
 
 /* =========================================================================
