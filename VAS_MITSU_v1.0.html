@@ -330,6 +330,9 @@ svg{ display:block; width:100%; height:100%; }
 .modalOverlay.show{ display:flex; }
 .modalBox{ background:var(--ink-800); border:1px solid var(--ink-600); border-radius:var(--r-panel); padding:22px; width:340px; max-width:100%; box-shadow:0 20px 60px rgba(0,0,0,.5); }
 .modalBox h3{ margin:0 0 6px; font-size:1rem; }
+.modalBox.helpDialog{width:640px;max-height:calc(100vh - 40px);max-height:calc(100dvh - 40px);display:flex;flex-direction:column;}
+.helpDialog>h3,.helpDialog>.modalBtns{flex-shrink:0;}
+.helpDialog .helpBody{min-height:0;overflow:auto;overflow-wrap:anywhere;}
 .modalBox p{ margin:0 0 16px; font-size:.8rem; color:var(--text-mut); line-height:1.5; }
 .modalBox input[type=text], .modalBox input[type=number]{ width:100%; height:44px; padding:0 12px; background:var(--ink-700); border:1px solid var(--ink-600); border-radius:8px; color:var(--text); font-size:.9rem; margin-bottom:12px; }
 .modalQuick{ display:flex; gap:8px; margin-bottom:14px; }
@@ -825,6 +828,11 @@ svg{ display:block; width:100%; height:100%; }
 .nvsEyebrow{font-size:10px;letter-spacing:1.6px;color:#bdd5c5}.nvsHeader .nvsBtn{background:#f2f6ef;color:#173f29;border:0}.nvsHeader .nvsPrimary{background:#bfe58f;color:#153c23}
 .nvsNav{display:flex;background:white;border-bottom:1px solid #dae2d8;padding:0 24px;gap:20px;overflow-x:auto;flex-shrink:0}.nvsNav button{padding:18px 16px;border:0;border-bottom:3px solid transparent;background:none;white-space:nowrap;color:#617466;font-weight:650;font-size:14px}.nvsNav button.active{color:#15533a;border-bottom-color:#246347}
 .nvsBody{overflow:auto;flex:1;padding:24px 28px;overscroll-behavior:contain}.nvsFooter{padding:10px 28px;border-top:1px solid #dde4da;display:flex;justify-content:space-between;gap:10px;background:#f8faf6;color:#69816e;font-size:11px;flex-shrink:0}
+.nvsMiiHost{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}.nvsMiiHost[hidden],.nvsBody[hidden]{display:none}
+.nvsMiiHost .nvsMiiEmbedded{position:relative;inset:auto;z-index:auto;flex:1;min-height:0}
+.miiFormActive>.nvsHeader{padding:8px 20px}.miiFormActive>.nvsHeader h2{font-size:17px;margin:3px 0}.miiFormActive>.nvsHeader p{margin:3px 0}.miiFormActive>.nvsNav button{padding-top:10px;padding-bottom:10px}
+.nvsMiiEmbedded>.nvsMiiHeader{padding:4px 16px;flex-shrink:0}.nvsMiiEmbedded>.nvsMiiHeader strong{display:none}.nvsMiiEmbedded>.nvsMiiHeader p{margin:0;font-size:11px}.nvsMiiEmbedded>.nvsMiiHeader select{padding:4px}
+.nvsMiiEmbedded>.nvsMiiNav{flex-shrink:0}.nvsMiiEmbedded>.nvsMiiNav span{display:none}.nvsMiiEmbedded>[data-mii-readiness]{margin:0;border-radius:0;flex-shrink:0;padding:8px 16px;font-size:12px}
 .nvsSummary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px}.nvsSummary>div{padding:20px 22px;background:#e5eddf;border-radius:12px}.nvsSummary span{font-size:12px;color:#5a705d;display:block}.nvsSummary strong{font-size:27px;display:block;margin-top:7px}
 .nvsCard{background:white;border:1px solid #dde4d9;border-radius:12px;padding:23px;margin-bottom:20px}.nvsCardHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}.nvsCard h3{font-size:17px;margin:0}.nvsGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 22px}.nvsWide{grid-column:1/-1}
 .nvsField{display:flex;flex-direction:column;gap:7px;font-size:12px;color:#56705e;min-width:0}.nvsField>span{font-weight:600}.nvsField input,.nvsField select,.nvsField textarea{box-sizing:border-box;width:100%;font:inherit;font-size:14px;line-height:1.6;border:1px solid #ccd7c8;border-radius:7px;background:#fbfcf9;color:#183c26;padding:9px 11px;min-height:42px}.nvsField textarea{resize:vertical;min-height:80px}.nvsField input:focus,.nvsField textarea:focus,.nvsField select:focus{outline:2px solid #7aa987;outline-offset:1px}.nvsField select[multiple]{min-height:100px}.nvsCheck{flex-direction:row;align-items:center;gap:10px}.nvsCheck input{width:20px;min-height:20px;height:20px;accent-color:#2f744c}
@@ -7404,9 +7412,16 @@ async function loadDemoProject(){
    22.10 ヘルプモーダル
    ========================================================================= */
 function openHelpModal(){
-  els.modalBox.className = 'modalBox';
+  closeModal();
+  let closed=false;
+  const finish=()=>{if(closed)return;closed=true;document.removeEventListener('keydown',onKey,true);simpleModalCancel=null;els.modalBox.classList.remove('helpDialog');closeModal();els.btnHelp.focus();};
+  const onKey=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();finish();}else trapNotesFocus(e,els.modalBox);};
+  simpleModalCancel=finish;
+  els.modalBox.className = 'modalBox helpDialog';
+  els.modalBox.setAttribute('role','dialog');els.modalBox.setAttribute('aria-modal','true');els.modalBox.setAttribute('aria-labelledby','helpTitle');
   els.modalBox.innerHTML = `
-    <h3>使い方</h3>
+    <h3 id="helpTitle">使い方</h3>
+    <div class="helpBody" tabindex="0" role="region" aria-label="操作手順とショートカット">
     <div class="helpStep"><span class="n">1</span><div>図面を読み込み、縮尺を設定する(画像選択・カメラ撮影・サンプル図面/2点タップで実距離を指定)。保存した案件は初期画面の「保存した案件を開く / JSON」、上部の「読込」、JSONファイルのドロップで開けます。</div></div>
     <div class="helpStep"><span class="n">2</span><div>機器を配置する(カードを選んでタップで設置)</div></div>
     <div class="helpStep"><span class="n">3</span><div>配線・付帯工事を作図する。自由・水平垂直・45度を切り替え、Shiftで水平垂直に固定。確定後は線を選んで端点・折れ点をドラッグして編集できます。区間距離は配線パネルで画面表示と資料への反映を別々に切り替えます（図面上の実長、見積の余長・切上げは含みません）。</div></div>
@@ -7421,9 +7436,12 @@ function openHelpModal(){
     <div class="helpStep"><span class="kbd">Shift</span><div>作図中に直前の頂点から水平/垂直スナップ</div></div>
     <div class="helpStep"><span class="kbd">Backspace</span><div>作図中は直前の頂点を取り消し</div></div>
     <div class="helpStep"><span class="kbd">Esc</span><div>選択解除・モード終了</div></div>
+    </div>
     <div class="modalBtns" style="margin-top:14px;"><button id="helpClose" class="primary">閉じる</button></div>`;
   els.modalOverlay.classList.add('show');
-  els.modalBox.querySelector('#helpClose').addEventListener('click', ()=>{ els.modalOverlay.classList.remove('show'); els.modalBox.innerHTML=''; });
+  els.modalBox.querySelector('#helpClose').addEventListener('click',finish);
+  document.addEventListener('keydown',onKey,true);
+  els.modalBox.querySelector('.helpBody').focus();
 }
 
 /* =========================================================================
@@ -8261,12 +8279,12 @@ function initApp(){
   initKeyboard();
 
   // タブを閉じる・他アプリへ移る直前の入力も、1.5秒の保存待ちに残さない。
-  const flushPendingSave=()=>{if(state.autosaveTimer)doAutosave();};
+  const flushPendingSave=()=>{try{nvsMiiSession?.flush();}catch(error){setSaveStatus('error','要ファイル保存',error.message);return false;}if(state.autosaveTimer)return doAutosave();return true;};
   window.addEventListener('pagehide',flushPendingSave);
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushPendingSave();});
   window.addEventListener('beforeunload',e=>{
     flushPendingSave();
-    if(state.pendingAutosaveDirty||document.getElementById('saveStatus')?.dataset.state==='error'){
+    if(state.pendingAutosaveDirty||document.getElementById('saveStatus')?.dataset.state==='error'||nvsMiiPhotosPending()){
       e.preventDefault();e.returnValue='';
     }
   });
@@ -8433,8 +8451,8 @@ async function nvsSave(format='zip',forceDownload=false){
     const stem='NVS_'+(owner.meta.title||'無題').replace(/[\\/:*?"<>|]/g,'_')+'_'+nvsToday()+'_'+revision.slice(-8),filename=stem+(format==='json'?'.json':'.nvs.zip');
     const blob=format==='json'?new Blob([JSON.stringify(data,null,2)],{type:'application/json'}):new Blob([nvsBuildPackage(data)],{type:'application/zip'});
     let result;if(forceDownload){downloadBlob(filename,blob);result='download';}else result=await nvsWriteFile(filename,blob);if(!result)return false;
-    if(project===owner){Object.assign(n,{parentRevisionId:data.nvs.parentRevisionId,revisionId:revision,savedAt:date});doAutosave();const changed=(state.nvsChange||0)!==change;state.nvsFileDirty=changed;setSaveStatus(changed?'dirty':'saved',changed?'保存後に変更あり':result==='download'?'ファイルを書出済':'ファイルに保存済',result==='download'?'ダウンロード先を確認してください。保存後の編集は再保存が必要です。':'案件パッケージへ保存しました');}
-    if(project===owner){const label=nvsOverlay?.querySelector('[data-nvs-saved-revision]');if(label)label.textContent=n.revisionId;}
+    if(project===owner){Object.assign(nvsEnsure(owner),{parentRevisionId:data.nvs.parentRevisionId,revisionId:revision,savedAt:date});doAutosave();const changed=(state.nvsChange||0)!==change;state.nvsFileDirty=changed;setSaveStatus(changed?'dirty':'saved',changed?'保存後に変更あり':result==='download'?'ファイルを書出済':'ファイルに保存済',result==='download'?'ダウンロード先を確認してください。保存後の編集は再保存が必要です。':'案件パッケージへ保存しました');}
+    if(project===owner){const label=nvsOverlay?.querySelector('[data-nvs-saved-revision]');if(label)label.textContent=nvsEnsure(owner).revisionId;}
     toast(result==='download'?'案件ファイルのダウンロードを開始しました':'案件ファイルを保存しました','ok');return true;
   }catch(e){toast(e.message,'warn');return false;}finally{state.nvsSaving=false;}
 }
@@ -8450,10 +8468,10 @@ function nvsImportMii(data){
   n.areas=list('moshimie').map(r=>({...r,id:nvsId(),name:r.area||'',demo:r.demo||r.result||'',floorId:'',status:'todo',photoIds:addPhotos(r.photos),assetKeys:[]}));
   n.areas.forEach(a=>a.photoRoles=Object.fromEntries(a.photoIds.map((id,i)=>[id,i===0?'設置箇所':'画角イメージ'])));
   n.assets=list('equipment').map(r=>({...r,id:nvsId(),name:r.name||'',type:'other',quantity:1,bodyQty:r.status==='流用'||r.status==='対象外'?0:1,installQty:0,bodyUnit:null,installUnit:null,note:r.note||'',importQuantityPending:true}));
-  if(data.topology){const g=nvsClone(data.topology);if(!Array.isArray(g.nodes)||!Array.isArray(g.links))throw new Error('MIIの構成図が不正です');g.nodes=g.nodes.map((x,i)=>({...x,id:String(x.id||nvsId()),assetKeys:[],qty:Number(x.qty??1),x:Number(x.x??((x.col||i%4)*220)),y:Math.max(0,Number(x.y??((x.row||Math.floor(i/4))*140)))}));g.links=g.links.map(x=>({...x,id:nvsId(),from:String(x.from),to:String(x.to)}));n.topology[data.mode==='imamiru'?'current':'proposed']=g;}
+  if(data.topology){const g=nvsClone(data.topology);if(!Array.isArray(g.nodes)||!Array.isArray(g.links))throw new Error('MIIの構成図が不正です');g.nodes=g.nodes.map((x,i)=>{const node={...x,id:String(x.id||nvsId()),assetKeys:[],qty:Number(x.qty??1),x:Number(x.x??((x.col||i%4)*220)),y:Math.max(0,Number(x.y??((x.row||Math.floor(i/4))*140)))};delete node._nvsBinding;return node;});g.links=g.links.map(x=>({...x,id:nvsId(),from:String(x.from),to:String(x.to)}));n.topology[data.mode==='imamiru'?'current':'proposed']=g;}
   n.imports.push({id:nvsId(),date:new Date().toISOString(),kind:'MII',source:nvsClone(data)});nvsMiiSeed(p,data);nvsValidate(n);nvsValidateReferences(p);return serializeProject(p);
 }
-function nvsSnapshot(label){const n=nvsEnsure();if(!label.trim())throw new Error('版の名前を入力してください');const data=nvsClone(serializeProject(project)),id=nvsId(),date=new Date().toISOString();data.nvs.order.baselineLabel=n.milestones.find(m=>m.id===n.order.baselineId)?.label||n.order.baselineLabel||'';data.nvs.milestones=[];Object.assign(data.nvs,{revisionId:id,parentRevisionId:n.revisionId,savedAt:date});const entry={id,label:label.trim(),date,stage:n.profile.stage,snapshot:data};n.milestones.push(entry);markDirty();return entry;}
+function nvsSnapshot(label){if(!label.trim())throw new Error('版の名前を入力してください');nvsMiiFlush();const n=nvsEnsure();const data=nvsClone(serializeProject(project)),id=nvsId(),date=new Date().toISOString();data.nvs.order.baselineLabel=n.milestones.find(m=>m.id===n.order.baselineId)?.label||n.order.baselineLabel||'';data.nvs.milestones=[];Object.assign(data.nvs,{revisionId:id,parentRevisionId:n.revisionId,savedAt:date});const entry={id,label:label.trim(),date,stage:n.profile.stage,snapshot:data};n.milestones.push(entry);markDirty();return entry;}
 function nvsInit(){
   const button=document.createElement('button');button.id='nvsOpen';button.className='tbtn';button.type='button';button.textContent='案件管理';button.addEventListener('click',()=>nvsOpen());els.btnSave.before(button);els.btnSave.title='案件パッケージを保存（ZIPを直接読込できます）';
   const hero=document.createElement('button');hero.id='nvsStart';hero.innerHTML=ic('edit')+'<span>商談・調査から始める</span>';hero.addEventListener('click',()=>nvsOpen());els.heroLoad.before(hero);
@@ -8531,10 +8549,27 @@ function nvsOperationsView(){const n=nvsEnsure(),type=nvsView.record;return nvsC
 function nvsMiiCard(){return nvsCard('診断・提案書（MII形式）',`<p class="nvsHint">MII原版の総合サマリー・既設診断・現地調査・改善後構成・機器一覧・改善提案。入力項目、選択肢、自由入力、写真、構成図編集をそのまま使用できます。案件情報と連動し、編集内容も案件ZIPに保存します。</p><div class="nvsActions">${nvsButton('MII形式の入力・出力を開く','mii-open','',true)}${nvsButton('MII形式をプレビュー','mii-preview')}</div>`);}
 function nvsDocumentsView(){const n=nvsEnsure();return nvsMiiCard()+nvsCard('工程別の資料を作る',`<p class="nvsHint">入力した内容だけを使い、長文と多数の項目は続頁に展開します。商談提案・顧客向け報告には内部の商談メモを含めません。</p><div class="nvsGrid">${Object.entries(NVS_REPORTS).map(([k,v])=>`<button class="nvsReportChoice ${nvsView.report===k?'selected':''}" data-nvs-action="report-kind" data-nvs-arg="${k}"><strong>${escapeHtml(v)}</strong><span>${{pre:'訪問前の要件・論点・履歴',proposal:'MII原版のサマリー・調査・構成図・機器一覧',survey:'内部の調査条件・未確認事項も含む',diagnosis:'MII原版の既設診断・現地調査・改善提案',cost:'対象範囲・未算定・機器一覧',work:'確定範囲・配置・接続・作業条件',completion:'完成配置・機器・試験・引渡し',aftercare:'完成版とその後の対応を確認'}[k]}</span></button>`).join('')}</div><div class="nvsGrid">${nvsField('診断・エリアのA〜D評価を資料へ表示','nvs.report.showEvaluation','check')}${nvsField('資料の名称','nvs.report.serviceNaming','select',{generic:'一般名称',brand:'いま診る / もし見え'})}</div><div class="nvsActions">${nvsButton('プレビュー・PDF印刷','report-preview','',true)}${nvsButton('編集可能なPowerPoint','report-pptx')}${nvsButton('機器台帳CSV','asset-csv')}</div>`)+
     nvsCard('既存のVAS資料',`<p class="nvsHint">既存様式の見積書・提案書・現地確認票・運用ハンドブックも利用できます。</p><div class="nvsActions">${nvsButton('見積・提案書','legacy-output')}${nvsButton('運用ハンドブック','legacy-handbook')}${nvsButton('現地確認票','legacy-survey-report')}</div>`)+nvsMilestoneView();}
-function nvsRender(){if(!nvsOverlay||nvsOverlay._owner!==project)return;const n=nvsEnsure(),tab=nvsView.tab;const content={case:nvsCaseView,survey:nvsSurveyView,design:nvsDesignView,cost:nvsCostView,operations:nvsOperationsView,documents:nvsDocumentsView}[tab]();
-  nvsOverlay.innerHTML=`<div class="nvsDialog"><header class="nvsHeader"><div><span class="nvsEyebrow">VAS MITSU / 案件管理 ${NVS_VERSION}</span><h2>${escapeHtml(project.meta.title||'新しい案件')}</h2><p><span data-nvs-customer>${escapeHtml(project.meta.customer||'顧客未登録')}</span> <span data-nvs-stage>${escapeHtml(n.profile.stage)}</span></p></div><div class="nvsActions">${nvsButton('案件保存','save','',true)}${nvsButton('読込','load')}${nvsButton('配置図へ戻る','close')}</div></header><nav class="nvsNav" aria-label="案件の作業画面">${Object.entries({case:'案件',survey:'調査',design:'設計',cost:'費用',operations:'施工・運用',documents:'資料'}).map(([k,v])=>`<button data-nvs-action="tab" data-nvs-arg="${k}" aria-current="${tab===k?'page':'false'}" class="${tab===k?'active':''}">${v}</button>`).join('')}</nav><main class="nvsBody">${content}</main><footer class="nvsFooter"><span>変更は案件に記録されます。引継ぎ・保管前に案件保存してください。</span><span>ZIPは展開せず直接読込できます</span></footer></div>`;
+function nvsRender(){
+  if(!nvsOverlay||nvsOverlay._owner!==project)return;
+  const el=nvsOverlay,tab=nvsView.tab,n=nvsEnsure();
+  // 原版iframeはタブ切替や案件保存時に作り直さず、未確定の編集・スクロールを保持する。
+  if(nvsMiiSession?.host&&nvsMiiSession.owner===project){
+    try{if(tab!=='mii')nvsMiiSession.suspend();else nvsMiiSession.activate();}
+    catch(error){nvsView.tab=el._tab||'mii';toast(error.message,'warn');return;}
+  }
+  if(!el.querySelector('.nvsDialog'))el.innerHTML='<div class="nvsDialog"><header class="nvsHeader"></header><nav class="nvsNav" aria-label="案件の作業画面"></nav><main class="nvsBody"></main><div class="nvsMiiHost" hidden></div><footer class="nvsFooter"><span>変更は案件に記録されます。引継ぎ・保管前に案件保存してください。</span><span>ZIPは展開せず直接読込できます</span></footer></div>';
+  el.querySelector('.nvsHeader').innerHTML=`<div><span class="nvsEyebrow">VAS MITSU / 案件管理 ${NVS_VERSION}</span><h2>${escapeHtml(project.meta.title||'新しい案件')}</h2><p><span data-nvs-customer>${escapeHtml(project.meta.customer||'顧客未登録')}</span> <span data-nvs-stage>${escapeHtml(n.profile.stage)}</span></p></div><div class="nvsActions">${nvsButton('案件保存','save','',true)}${nvsButton('読込','load')}${nvsButton('配置図へ戻る','close')}</div>`;
+  el.querySelector('.nvsNav').innerHTML=Object.entries({mii:'入力フォーム',case:'案件',survey:'調査管理',design:'設計',cost:'費用',operations:'施工・運用',documents:'資料'}).map(([k,v])=>`<button data-nvs-action="tab" data-nvs-arg="${k}" aria-current="${tab===k?'page':'false'}" class="${tab===k?'active':''}">${v}</button>`).join('');
+  const body=el.querySelector('.nvsBody'),host=el.querySelector('.nvsMiiHost');
+  body.hidden=tab==='mii';host.hidden=tab!=='mii';el.querySelector('.nvsDialog').classList.toggle('miiFormActive',tab==='mii');el._tab=tab;
+  if(tab==='mii'){
+    if(!nvsMiiSession?.host)void nvsOpenMii(project,{host}).catch(error=>{if(el===nvsOverlay)toast(error.message,'warn');});
+  }else body.innerHTML={case:nvsCaseView,survey:nvsSurveyView,design:nvsDesignView,cost:nvsCostView,operations:nvsOperationsView,documents:nvsDocumentsView}[tab]();
 }
-function nvsOpen(tab){if(tab)nvsView.tab=tab;if(nvsOverlay){nvsRender();return;}nvsSyncBasic();nvsEnsure();const el=document.createElement('div');el.className='nvsOverlay';el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-label','NVS案件管理');el._owner=project;el._returnFocus=document.activeElement;nvsOverlay=el;document.body.appendChild(el);nvsRender();
+function nvsOpen(tab='mii'){
+  if(nvsMiiSession?.host)nvsMiiAssertSettled();nvsView.tab=tab;
+  if(nvsOverlay){nvsRender();return;}
+  nvsSyncBasic();nvsEnsure();const el=document.createElement('div');el.className='nvsOverlay';el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-label','NVS案件管理');el._owner=project;el._returnFocus=document.activeElement;nvsOverlay=el;document.body.appendChild(el);nvsRender();
   const edit=e=>{if(nvsPlotEdit(e))return;const t=e.target,path=t.dataset.nvsPath;if(t.dataset.nvsPhotoName&&el._owner===project){const ph=project.photos[t.dataset.nvsPhotoName];if(ph){ph.name=t.value;markDirty();}return;}if(t.dataset.nvsPhotoRole&&el._owner===project){const row=nvsValue(t.dataset.nvsPhotoRole);if(row){row.photoRoles=row.photoRoles||{};row.photoRoles[t.dataset.photoId]=t.value;markDirty();}return;}if(!path||el._owner!==project)return;let value=t.type==='checkbox'?t.checked:t.multiple?[...t.selectedOptions].map(o=>o.value):t.type==='number'?(t.value===''?null:Number(t.value)):t.value;
     if(t.type==='number'&&value!=null&&(!Number.isFinite(value)||/(quantity|bodyQty|installQty|qty|cameraCount)$/.test(path)&&value<0)){t.setCustomValidity('0以上の有限数を入力してください');t.reportValidity();return;}t.setCustomValidity?.('');nvsSet(path,value);const areaMatch=path.match(/^nvs\.areas\.(\d+)\./);if(areaMatch){const row=project.nvs.areas[Number(areaMatch[1])],entry=t.closest('[data-nvs-area-id]');if(entry&&row){entry.querySelector('[data-nvs-area-name]').textContent=nvsAreaDisplayName(row);entry.querySelector('[data-nvs-area-status]').textContent=SURVEY_STATUS[row.status]||'未確認';}}if(/^nvs\.assets\.\d+\.quantity$/.test(path)){const row=nvsValue(path.split('.').slice(0,-1).join('.'));row.importQuantityPending=false;}markDirty();
     if(nvsView.tab==='cost'){const totals=NEXT_PURE.calcTotals(project),cards=el.querySelectorAll('.nvsSummary strong'),pending=nvsUnpriced().length;const notice=el.querySelector('[data-nvs-cost-notice]');if(cards[0])cards[0].textContent='¥'+totals.total.toLocaleString();if(cards[1])cards[1].textContent=pending+'件';if(notice)notice.textContent=nvsCostNotice(pending);}
@@ -8544,19 +8579,19 @@ function nvsOpen(tab){if(tab)nvsView.tab=tab;if(nvsOverlay){nvsRender();return;}
   el.addEventListener('input',edit);el.addEventListener('change',edit);
   el.addEventListener('toggle',e=>{const entry=e.target;if(el._owner!==project||!entry.matches?.('details[data-nvs-area-id]'))return;const ids=nvsOpenAreaIds(),id=entry.dataset.nvsAreaId;if(entry.open)ids.add(id);else ids.delete(id);},true);
   el.addEventListener('click',e=>{const b=e.target.closest('[data-nvs-action]');if(!b||el._owner!==project)return;void nvsAction(b.dataset.nvsAction,b.dataset.nvsArg||'').catch(error=>toast(error.message,'warn'));});
-  el._key=e=>{if(document.querySelector('.modalOverlay.show')||document.querySelector('.nvsReportOverlay,.nvsMiiOverlay'))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();e.stopPropagation();void nvsSave();}else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();nvsClose();}else trapNotesFocus(e,el);};document.addEventListener('keydown',el._key,true);
+  el._key=e=>{if(document.querySelector('.modalOverlay.show')||document.querySelector('.nvsReportOverlay,.nvsMiiOverlay:not(.nvsMiiEmbedded)'))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();e.stopPropagation();void nvsSave();}else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();try{nvsClose();}catch(error){toast(error.message,'warn');}}else trapNotesFocus(e,el);};document.addEventListener('keydown',el._key,true);
   let drag=null;el.addEventListener('pointerdown',e=>{const node=e.target.closest('[data-nvs-node]');if(!node)return;const svg=node.closest('svg'),g=nvsEnsure().topology[nvsView.scenario],item=g.nodes.find(x=>x.id===node.dataset.nvsNode);if(!item)return;drag={item,svg,node,owner:project};node.setPointerCapture?.(e.pointerId);e.preventDefault();});
   el.addEventListener('pointermove',e=>{if(!drag||drag.owner!==project)return;const vb=drag.svg.viewBox.baseVal,point=drag.svg.createSVGPoint();point.x=e.clientX;point.y=e.clientY;const local=point.matrixTransform(drag.svg.getScreenCTM().inverse());drag.item.x=Math.max(0,Math.min(vb.width-190,local.x-90));drag.item.y=Math.max(0,Math.min(vb.height-90,local.y-40));drag.node.setAttribute('transform',`translate(${drag.item.x},${drag.item.y})`);});
   const end=()=>{if(!drag)return;drag=null;markDirty();const graph=el.querySelector('.nvsGraph');if(graph)graph.innerHTML=nvsGraphSvg(project,nvsView.scenario,true);};el.addEventListener('pointerup',end);el.addEventListener('pointercancel',end);el.querySelector('[data-nvs-action="close"]').focus();
 }
-function nvsClose(){const el=nvsOverlay;if(!el)return;document.removeEventListener('keydown',el._key,true);el.remove();nvsOverlay=null;refreshAll();if(el._returnFocus?.isConnected)el._returnFocus.focus();}
+function nvsClose(){const el=nvsOverlay;if(!el)return;if(nvsMiiSession?.host){nvsMiiAssertSettled();nvsMiiAssertPhotosSettled();if(nvsMiiSession.owner===project)nvsMiiSession.flush();nvsMiiSession.dispose();}document.removeEventListener('keydown',el._key,true);el.remove();nvsOverlay=null;refreshAll();if(el._returnFocus?.isConnected)el._returnFocus.focus();}
 function nvsAdd(kind){const n=nvsEnsure(),base={id:nvsId()};if(kind==='meetings')n.meetings.push({...base,date:nvsToday(),participants:'',note:'',nextAction:''});
   if(kind==='areas'){n.areas.push({...base,name:'',floorId:'',status:'todo',grade:'',current:'',demo:'',position:'',height:'',count:'',policy:'',assetKeys:[],photoIds:[]});nvsOpenAreaIds().add(base.id);}
   if(kind==='diagnostics')n.diagnostics.push({...base,category:'追加診断',target:'',status:'todo',grade:'',priority:'未設定',finding:'',risk:'',proposal:'',photoIds:[],assetKeys:[]});
   if(kind==='assets')n.assets.push({...base,name:'',type:'other',quantity:1,status:'要確認',location:'',model:'',note:'',bodyQty:1,installQty:0,bodyUnit:null,installUnit:null});
   if(kind==='records')n.records.push({...base,type:nvsView.record,date:nvsToday(),title:'',owner:n.profile.owner,detail:'',result:'',status:'todo',due:'',areaId:'',assetKeys:[],photoIds:[]});markDirty();nvsRender();nvsOverlay?.querySelector('.nvsBody')?.scrollTo({top:100000,behavior:'smooth'});
 }
-async function nvsAction(action,arg){const n=nvsEnsure(),owner=project;
+async function nvsAction(action,arg){if(nvsMiiSession?.host&&!action.startsWith('mii-'))nvsMiiAssertSettled();const n=nvsEnsure(),owner=project;
   if(action==='plot-review'){nvsPlotReview();return;}
   if(action==='plot-apply'){nvsPlotApply();return;}
   if(action==='plot-undo'){nvsPlotUndoApply();return;}
@@ -8588,7 +8623,7 @@ async function nvsAction(action,arg){const n=nvsEnsure(),owner=project;
   if(action==='snapshot'){const name=await promptModal('この版の名前',n.profile.stage+' '+nvsToday());if(name==null||project!==owner)return;nvsSnapshot(name);toast('この時点の案件を版として残しました','ok');}
   if(action==='milestone-save'){const m=n.milestones[Number(arg)];if(m)downloadBlob('NVS_'+m.label.replace(/[\\/:*?"<>|]/g,'_')+'.json',new Blob([JSON.stringify(m.snapshot,null,2)],{type:'application/json'}));return;}
   if(action==='milestone-preview'){const m=n.milestones[Number(arg)];if(!m)return;const old=buildProjectFromData(m.snapshot);const prior=NEXT_PURE.calcTotals(old),current=NEXT_PURE.calcTotals(project);const text=`${m.label}\n記録日時: ${m.date}\n記録時: ${nvsAssets(old).reduce((s,a)=>s+a.quantity,0)}点 / ¥${prior.total.toLocaleString()}\n現在: ${nvsAssets().reduce((s,a)=>s+a.quantity,0)}点 / ¥${current.total.toLocaleString()}\n記録時の資料を開きます。現在の案件は変更しません。`;if(!await confirmModal('保存版を確認',text,{okLabel:'保存版の資料を開く'}))return;if(project!==owner)return;const kind=({'商談前':'pre','商談':'proposal','調査':'survey','提案・見積':'proposal','受注・施工':'work','完成':'completion','アフター':'aftercare'})[m.stage]||'pre';await nvsReportPreview(kind,old,{sourceVersion:{label:m.label,date:m.date}});return;}
-  if(action==='duplicate'){if(!await confirmModal('別案件として複製','現在の案件を先にファイル保存してください。新しい案件IDで複製し、提出・受注・完成の保存版は元案件に残します。',{okLabel:'複製する'}))return;if(project!==owner)return;const data=nvsClone(serializeProject(project));data.meta.title=(data.meta.title||'無題')+'（複製）';Object.assign(data.nvs,{projectId:nvsId(),revisionId:null,parentRevisionId:null,savedAt:null,milestones:[],derivedFrom:n.projectId});data.nvs.order.baselineId='';nvsClose();applyLoadedProject(buildProjectFromData(data),true);nvsOpen();return;}
+  if(action==='duplicate'){if(!await confirmModal('別案件として複製','現在の案件を先にファイル保存してください。新しい案件IDで複製し、提出・受注・完成の保存版は元案件に残します。',{okLabel:'複製する'}))return;if(project!==owner)return;nvsMiiFlush();const data=nvsClone(serializeProject(project));data.meta.title=(data.meta.title||'無題')+'（複製）';Object.assign(data.nvs,{projectId:nvsId(),revisionId:null,parentRevisionId:null,savedAt:null,milestones:[],derivedFrom:n.projectId});data.nvs.order.baselineId='';nvsClose();applyLoadedProject(buildProjectFromData(data),true);nvsOpen();return;}
   if(action==='unmap-asset'){const asset=n.assets[Number(arg)];if(asset)asset.mappedTo='';}
   if(action==='split-asset'){const a=n.assets[Number(arg)];if(!a)return;if(!await confirmModal('数量グループを個別の機器に分ける',`${a.quantity}台の機器へ展開します。対象数量は先頭の機器から割り当てます。展開前の版を残します。`,{okLabel:'展開する'}))return;if(project!==owner)return;nvsSnapshot('展開前: '+(a.name||'数量グループ'));nvsSplitAsset(Number(arg));}
   if(action==='map-asset'){await nvsMapAsset(Number(arg));return;}
@@ -8655,21 +8690,29 @@ function nvsReportWrapText(value){
   const text=String(value??''),ctx=document.createElement('canvas').getContext('2d');
   if(!ctx)return quotePptxWrapText(text,48);
   ctx.font=`18px "${PPT_FONT}", sans-serif`;
+  // SVG本文と同じ計測を使い、SafariのCanvasとの幅差によるはみ出しを防ぐ。
+  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),measureNode=document.createElementNS(ns,'text'),widths=new Map();
+  svg.setAttribute('width','960');svg.setAttribute('height','540');svg.setAttribute('viewBox','0 0 960 540');svg.setAttribute('aria-hidden','true');
+  svg.style.cssText='position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none';
+  measureNode.setAttribute('font-family',PPT_FONT+', sans-serif');measureNode.setAttribute('font-size','18');svg.appendChild(measureNode);document.body.appendChild(svg);
+  const measure=text=>{if(widths.has(text))return widths.get(text);measureNode.textContent=text;const measured=measureNode.getComputedTextLength(),width=Number.isFinite(measured)&&measured>0?measured:ctx.measureText(text).width;widths.set(text,width);return width;};
+  try{
   const noStart=new Set(Array.from('、。，．：；？！!?)]｝〉》」』】〕］・ーぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ')),noEnd=new Set(Array.from('([{（｛〈《「『【〔［'));
   const lines=[];let line='';
   for(const ch of Array.from(text)){
     if(ch==='\r')continue;
     if(ch==='\n'){lines.push(line);line='';continue;}
-    if(line&&ctx.measureText(line+ch).width>880){
+    if(line&&measure(line+ch)>880){
       // 句読点は紙面内の余裕へ収め、難しい場合は直前の文字と次行へ送る。
-      if(noStart.has(ch)&&ctx.measureText(line+ch).width<=900){line+=ch;continue;}
+      if(noStart.has(ch)&&measure(line+ch)<=900){line+=ch;continue;}
       const chars=Array.from(line);let carry=ch;
       while(chars.length>1&&(noStart.has(Array.from(carry)[0])||noEnd.has(chars.at(-1))))carry=chars.pop()+carry;
-      if(ctx.measureText(carry).width>880){lines.push(line);line=ch;}else{lines.push(chars.join(''));line=carry;}
+      if(measure(carry)>880){lines.push(line);line=ch;}else{lines.push(chars.join(''));line=carry;}
     }else line+=ch;
   }
   if(line||!lines.length)lines.push(line);
   return lines;
+  }finally{svg.remove();}
 }
 // 機器1台分の名称・納入情報を同じ紙面へまとめる。長い記録の続頁には先頭の識別行を再掲する。
 function nvsReportGroupedPages(section){
@@ -8727,7 +8770,7 @@ function nvsPrintReport(model,overlay){
   window.addEventListener('afterprint',after);
   try{window.print();}catch(error){after();throw error;}
 }
-async function nvsReportPreview(kind,source=project,options={}){if(['proposal','diagnosis'].includes(kind))return nvsOpenMii(source,{preview:true});const model=await nvsPrepareReport(kind,source,options),overlay=document.createElement('div');overlay.className='nvsReportOverlay';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label',model.title+'のプレビュー');const focus=document.activeElement;
+async function nvsReportPreview(kind,source=project,options={}){if(['proposal','diagnosis'].includes(kind))return nvsOpenMii(source,{preview:true,sourceVersion:options.sourceVersion});const model=await nvsPrepareReport(kind,source,options),overlay=document.createElement('div');overlay.className='nvsReportOverlay';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label',model.title+'のプレビュー');const focus=document.activeElement;
   overlay.innerHTML=`<header><div><h2>${escapeHtml(model.title)}</h2><p>${model.pages.length}ページ / ${model.sourceVersion?'保存版: '+escapeHtml(model.sourceVersion.label)+' / 記録日時: '+escapeHtml(model.sourceVersion.date):'このプレビューを作成した時点の内容'}</p></div><div class="nvsActions">${nvsButton('閉じる','close')}${nvsButton('PDF・印刷','print')}${nvsButton('PowerPoint保存','pptx','',true)}</div></header><div class="nvsReportPages">${model.pages.map((p,i)=>'<section class="nvsReportPage">'+nvsReportSvg(p,i,model.pages.length)+'</section>').join('')}</div>`;document.body.appendChild(overlay);
   const close=()=>{document.removeEventListener('keydown',key,true);overlay.remove();if(focus?.isConnected)focus.focus();};const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();}else trapNotesFocus(e,overlay);};document.addEventListener('keydown',key,true);
   overlay.addEventListener('click',async e=>{const action=e.target.closest('[data-nvs-action]')?.dataset.nvsAction;try{if(action==='close')close();if(action==='pptx')downloadBlob(nvsReportFileBase(model)+'.pptx',new Blob([nvsBuildReportPptx(model)],{type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'}));if(action==='print')nvsPrintReport(model,overlay);}catch(error){toast(error.message,'warn');}});overlay.querySelector('[data-nvs-action="close"]').focus();return model;
@@ -8735,13 +8778,13 @@ async function nvsReportPreview(kind,source=project,options={}){if(['proposal','
 function nvsExportAssetCsv(){const rows=[['案件','機器ID','名称','数量','場所','型番','IP','シリアル','状態','備考'],...nvsAssets().map(a=>[project.meta.title,a.key,nvsAssetDisplayName(a),a.quantity,a.location,a.source.model||'',a.source.ipAddress||'',a.source.serialNumber||'',a.source.status||'',a.source.note||a.source.annotation||''])];downloadBlob(('NVS_機器台帳_'+(project.meta.title||'無題')).replace(/[\\/:*?"<>|]/g,'_')+'.csv',new Blob(['\uFEFF'+rows.map(r=>r.map(v=>NEXT_PURE.toCsvField(/^[=+@\-]/.test(String(v))?"'"+v:v)).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));}
 
 async function nvsLoadData(raw,label='案件ファイル',owner=project){
-  const data=nvsImportMii(raw);if(project!==owner)return false;
+  nvsMiiFlush();const data=nvsImportMii(raw);if(project!==owner)return false;
   const built=buildProjectFromData(data);if(!built)throw new Error('フロアデータが見つかりません');nvsValidateReferences(built);
   const incoming=nvsEnsure(built),current=nvsEnsure(owner);let detail='現在の案件を、選択した'+label+'の内容に置き換えます。必要な案件は先にファイル保存してください。';
   if(incoming.projectId===current.projectId&&incoming.revisionId!==current.revisionId)detail+=' 同じ案件の別の版です。保存日時: '+(incoming.savedAt||'未記録')+'。自動マージは行いません。';
   if(state.pendingAutosave)detail+=' 前回の自動保存も置き換わります。';
   if((state.pendingAutosave||hasProjectWork())&&!await confirmModal('保存した案件を開く',detail,{okLabel:'読み込む'}))return false;if(project!==owner)return false;
-  if(!applyLoadedProject(built,true))return false;const reopen=!!nvsOverlay;nvsClose();if(reopen||raw?.schema==='mii.project.v1')nvsOpen();state.nvsFileDirty=false;toast('案件を読み込みました。ZIPの手動展開は不要です','ok');return true;
+  nvsMiiFlush();if(!applyLoadedProject(built,true))return false;nvsMiiSession?.dispose();const reopen=!!nvsOverlay;nvsClose();if(reopen||raw?.schema==='mii.project.v1')nvsOpen();state.nvsFileDirty=false;toast('案件を読み込みました。ZIPの手動展開は不要です','ok');return true;
 }
 
 /* NVS_PLOT_BEGIN */
@@ -8930,6 +8973,507 @@ function nvsPlotUndoApply(){
 /* NVS_PLOT_END */
 
 /* NVS_MII_BEGIN */
+// 原版のフォーム・素材は保持し、VASの確認状態に応じた帳票表示だけを実行時に差し替える。
+function nvsMiiConfirmationSource(source){
+  const replace=(text,needle,value)=>{
+    const at=text.indexOf(needle);
+    if(at<0||text.indexOf(needle,at+needle.length)>=0)throw new Error('MIIの確認表示を一意に確認できません: '+needle.slice(0,72));
+    return text.slice(0,at)+value+text.slice(at+needle.length);
+  };
+  const section=(start,end,edit)=>{
+    const at=source.indexOf(start),stop=source.indexOf(end,at+start.length);
+    if(at<0||stop<0||source.indexOf(start,at+start.length)>=0)throw new Error('MIIの確認表示の描画範囲を確認できません: '+start.slice(0,72));
+    source=source.slice(0,at)+edit(source.slice(at,stop))+source.slice(stop);
+  };
+  const helpers=`
+function nvsMiiRowState(row){
+  if(typeof row?._nvsId!=='string'||!row._nvsId)return 'todo';
+  let state;try{state=window.__nvsMiiStatus?.(row?._nvsId);}catch(error){}
+  return ['ok','na','followup'].includes(state)?state:'todo';
+}
+function nvsMiiRowsState(rows){
+  const states=(rows||[]).map(nvsMiiRowState);
+  if(!states.length)return 'todo';
+  if(states.every(state=>state==='na'))return 'na';
+  if(states.some(state=>state==='followup'))return 'followup';
+  return states.every(state=>state==='ok'||state==='na')?'ok':'todo';
+}
+function nvsMiiScopeState(scope){
+  const groups=[];
+  if(scope==='diagnostics'||(!scope&&project.mode!=='moshimie'))groups.push(project.imamiru||[]);
+  if(scope==='areas'||(!scope&&project.mode!=='imamiru'))groups.push(project.moshimie||[]);
+  return nvsMiiRowsState(groups.flatMap(rows=>rows.length?rows:[{}]));
+}
+function nvsMiiStateLabel(state,complete='確認済'){return state==='ok'?complete:state==='na'?'対象外':state==='followup'?'要確認':'未確認';}
+function nvsMiiStateMark(state){return state==='ok'?'✓':state==='followup'?'!':'—';}
+function nvsMiiRowLabel(row){return nvsMiiStateLabel(nvsMiiRowState(row),'✓');}
+function nvsMiiPendingSummary(scope){
+  const state=nvsMiiScopeState(scope);
+  if(state==='na')return 'この資料の対象項目は、対象外として整理しています。';
+  if(scope==='diagnostics')return '既設設備の状態・運用について、入力内容と今後の確認事項を7つの観点で整理しています。\\n現地確認が未完了、または追加確認が必要な項目を含みます。';
+  if(scope==='areas')return '見え方・死角・設置条件に関する入力内容と、今後の確認事項を整理しています。';
+  return state==='followup'?'本書は確認事項と対応予定を整理した資料です。追加の確認が必要な項目を含みます。':'本書は入力内容と確認予定を整理した作成途中の資料です。現地確認が未完了の項目を含みます。';
+}
+function nvsMiiPendingBullets(){if(nvsMiiScopeState('diagnostics')==='na')return ['既設設備の診断項目は対象外です。','診断結果や改善の要否は、この資料では判定していません。','対象範囲を変更する場合は、改めて確認項目を整理してください。'];return [
+  '必要な場所や時間帯について、見え方と重要シーンの可視性を確認します。',
+  '録画・保存期間、権限管理、FW更新など、運用・セキュリティ条件を確認します。',
+  '確認結果を踏まえ、既設設備の活用やカメラの追加・配置見直しの必要性を検討します。'
+];}
+function nvsMiiPendingCanvasDiagnosis(ctx){
+  if(nvsMiiScopeState('diagnostics')==='ok')return;
+  // 背景PNGの本文だけを置換する。上部(240,144,1314,54)、下部(380,747,1134,111)。
+  ctx.save();ctx.fillStyle='#FFFFFF';ctx.fillRect(240,144,1314,54);ctx.fillRect(380,747,1134,111);ctx.restore();
+  for(let i=0;i<3;i++){
+    ctx.save();ctx.fillStyle='#FFFFFF';ctx.fillRect(336,748+i*38,33,33);ctx.fillStyle='#0F7F82';ctx.beginPath();ctx.arc(352,765+i*38,14,0,Math.PI*2);ctx.fill();ctx.restore();
+    text(ctx,String(i+1),338,751+i*38,28,28,{size:17,minSize:17,bold:true,color:'#FFFFFF',align:'center',valign:'middle',maxLines:1});
+  }
+  text(ctx,nvsMiiPendingSummary('diagnostics'),245,145,1240,48,{size:17,minSize:15,bold:true,color:'#1F2937',lh:24,maxLines:2});
+  nvsMiiPendingBullets().forEach((line,i)=>text(ctx,line,382,750+i*38,1125,28,{size:17,minSize:15,bold:true,color:'#1F2937',valign:'middle',maxLines:1}));
+}
+`;
+  source=replace(source,'function v1938SummaryText(){',helpers+"function v1938SummaryText(){if(nvsMiiScopeState()!=='ok')return nvsMiiPendingSummary();");
+  source=replace(source,'function summaryText(){',"function summaryText(){if(nvsMiiScopeState()!=='ok')return nvsMiiPendingSummary();");
+
+  section('const v1938DrawSummaryBase=drawSummary;','\n  const v1938DrawImamiruBase=',text=>{
+    text=replace(text,"text(ctx,'✓',82,278,178,100,","text(ctx,nvsMiiStateMark(nvsMiiScopeState()),82,278,178,100,");
+    text=replace(text,"text(ctx,'確認済',82,382,178,32,","text(ctx,nvsMiiStateLabel(nvsMiiScopeState()),82,382,178,32,");
+    return replace(text,".forEach((x)=>text(ctx,'✓',x,382,72,44,{size:28,minSize:24,",".forEach((x,i)=>text(ctx,nvsMiiRowLabel(project.imamiru?.[i]),x,382,72,44,{size:nvsMiiRowState(project.imamiru?.[i])==='ok'?28:18,minSize:nvsMiiRowState(project.imamiru?.[i])==='ok'?24:16,");
+  });
+  section('function v2011SummaryNative(slide,idx,evalOn,titleText){','\n  pSummary=function',text=>{
+    text=replace(text,"const intro=(titleText.includes('もし見え'))?","const intro=nvsMiiScopeState()!=='ok'?nvsMiiPendingSummary():(titleText.includes('もし見え'))?");
+    text=replace(text,"v2011Text(slide,'✓',92,292,155,70,","v2011Text(slide,nvsMiiStateMark(nvsMiiScopeState()),92,292,155,70,");
+    text=replace(text,"v2011Text(slide,'確認済',92,372,155,28,","v2011Text(slide,nvsMiiStateLabel(nvsMiiScopeState()),92,372,155,28,");
+    return replace(text,"v2011Text(slide,'✓',x+42,383,76,33,{size:17,","v2011Text(slide,nvsMiiRowLabel(r),x+42,383,76,33,{size:nvsMiiRowState(r)==='ok'?17:12,");
+  });
+  section('function v2016MoshimiePreviewSummary(ctx,idx){','\n  const v2016DrawSummaryBase=',text=>{
+    text=replace(text,"text(ctx,'✓',92,291,155,68,","text(ctx,nvsMiiStateMark(nvsMiiScopeState('areas')),92,291,155,68,");
+    text=replace(text,"text(ctx,'調査済',92,370,155,28,","text(ctx,nvsMiiStateLabel(nvsMiiScopeState('areas'),'調査済'),92,370,155,28,");
+    return replace(text,"label:'確認状態',value:'OK'","label:'確認状態',value:nvsMiiStateLabel(nvsMiiScopeState('areas'),'OK')");
+  });
+  section('function v2016MoshimiePptSummary(slide,idx){','\n  const v2016PSummaryBase=',text=>{
+    text=replace(text,"v2011Text(slide,'✓',92,292,155,70,","v2011Text(slide,nvsMiiStateMark(nvsMiiScopeState('areas')),92,292,155,70,");
+    text=replace(text,"v2011Text(slide,'調査済',92,372,155,28,","v2011Text(slide,nvsMiiStateLabel(nvsMiiScopeState('areas'),'調査済'),92,372,155,28,");
+    return replace(text,"label:'確認状態',value:'OK'","label:'確認状態',value:nvsMiiStateLabel(nvsMiiScopeState('areas'),'OK')");
+  });
+
+  section('const v1940DrawImamiruBase=drawImamiru;','\n  function v1940MoshiRightText',text=>{
+    text=replace(text,"const tx=38,ty=216,head=35,rowH=(505-head)/7,cw=[181,65,190,180,254];","nvsMiiPendingCanvasDiagnosis(ctx);const tx=38,ty=216,head=35,rowH=(505-head)/7,cw=[181,65,190,180,254];");
+    text=replace(text,"mark=v1938ShowEval()?r.grade:'✓'","mark=v1938ShowEval()?r.grade:nvsMiiRowLabel(r)");
+    return replace(text,'size:v1938ShowEval()?29:24,minSize:v1938ShowEval()?26:21,',"size:v1938ShowEval()?29:nvsMiiRowState(r)==='ok'?24:16,minSize:v1938ShowEval()?26:nvsMiiRowState(r)==='ok'?21:14,");
+  });
+  section("  pImamiru=function(slide,it,idx){\n    nativeBase(slide,it,idx,'いま診る（既設診断）','既設設備の診断結果（7観点）');",'\n  function v1940PPhotoFrame',text=>{
+    text=replace(text,"addTxt(slide,'既設の映像環境について、機器の状態や運用状況を7つの観点から確認しました。\\nその結果、映像の見え方や録画・保存、管理・セキュリティ面に改善の余地があることが分かりました。',", "addTxt(slide,nvsMiiScopeState('diagnostics')==='ok'?'既設の映像環境について、機器の状態や運用状況を7つの観点から確認しました。\\nその結果、映像の見え方や録画・保存、管理・セキュリティ面に改善の余地があることが分かりました。':nvsMiiPendingSummary('diagnostics'),");
+    text=replace(text,"addTxt(slide,evalOn?(r.grade||'-'):'✓',tx+cw[0]+4,y+13,cw[1]-8,rowH-20,{size:16,","addTxt(slide,evalOn?(r.grade||'-'):nvsMiiRowLabel(r),tx+cw[0]+4,y+(evalOn||nvsMiiRowState(r)==='ok'?13:(rowH-20)/2),cw[1]-8,evalOn||nvsMiiRowState(r)==='ok'?rowH-20:20,{size:evalOn||nvsMiiRowState(r)==='ok'?16:9,");
+    text=replace(text,'const bullets=[',"const bullets=nvsMiiScopeState('diagnostics')==='ok'?[");
+    text=replace(text,"addTxt(slide,'✓',342,y+2,20,19,","addTxt(slide,nvsMiiScopeState('diagnostics')==='ok'?'✓':String(i+1),342,y+2,20,19,");
+    return replace(text,"'既存設備を活用しつつ、必要に応じたカメラの追加・配置見直しにより、全体の最適化が可能です。'];","'既存設備を活用しつつ、必要に応じたカメラの追加・配置見直しにより、全体の最適化が可能です。']:nvsMiiPendingBullets();");
+  });
+  const areaLead='ネットワークカメラの現地調査により、見え方・死角・設置効果を確認しました。';
+  const areaLeadExpr="nvsMiiScopeState('areas')==='ok'?'"+areaLead+"':nvsMiiPendingSummary('areas')";
+  const areaFooterExpr="nvsMiiScopeState('areas')==='ok'?'もし見えで確認できたこと':nvsMiiScopeState('areas')==='na'?'もし見えの確認範囲':'もし見えで確認すること'";
+  section('function v99PptNarrative(','\n  pProposal=function',text=>{
+    text=replace(text,"addTxt(slide,'"+areaLead+"',",'addTxt(slide,'+areaLeadExpr+',');
+    return replace(text,"addTag(slide,'もし見えで確認できたこと',50,802,250,40,",'addTag(slide,'+areaFooterExpr+',50,802,250,40,');
+  });
+  section('  drawMoshimie=async function(ctx,start,idx){\n    // This page alone is repainted;', '\n  if(window.MII_TEST)window.MII_TEST.v2001MoshimiePreviewRestore',text=>{
+    text=replace(text,"v2001Txt(ctx,'"+areaLead+"',",'v2001Txt(ctx,'+areaLeadExpr+',');
+    return replace(text,"v2001Txt(ctx,'もし見えで確認できたこと',56.4,807.6,237.6,21.6,",'v2001Txt(ctx,'+areaFooterExpr+',56.4,807.6,237.6,21.6,');
+  });
+  return source;
+}
+
+// 構成図の原版表示を保ち、図に収まらない詳細だけを全文の続頁で補う。
+function nvsMiiTopologyNotesSource(source){
+  const unique=(needle)=>{
+    const at=source.indexOf(needle);
+    if(at<0||source.indexOf(needle,at+needle.length)>=0)throw new Error('MIIの構成詳細出力を一意に確認できません: '+needle.slice(0,80));
+    return at;
+  };
+  const replace=(needle,value)=>{const at=unique(needle);source=source.slice(0,at)+value+source.slice(at+needle.length);};
+  unique("function pageList(){const arr=[{kind:'summary',bg:1}];");
+  unique("drawPage=async function(canvas,item,idx){const ctx=canvas.getContext('2d',{alpha:false});ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);ctx.drawImage(await v1940BgForItem(item)");
+  unique('function v1931OutputBounds(){');
+  unique('function v1923PptSafeText(raw,w,h,fs,opt={}){');
+  const install=function nvsMiiTopologyNotesInstall(){
+    const KIND='nvs-system-detail',FONT_PX=22,FONT_PT=13.2,X0=64,Y0=168,WIDTH=1473,LINE_H=32,ROWS=20;
+    const NODE_LIMIT=50000,TOTAL_LIMIT=100000,PAGE_LIMIT=200;
+    const PREFIX='接続図：詳細続頁 — ';
+    function failure(message,ids=[]){
+      const error=PREFIX+message;
+      return {error,overflowNodeIds:ids,pages:[{kind:KIND,rows:[
+        {text:'詳細続頁を出力できません',role:'name'},
+        {text:message,role:'notice'},
+        {text:'入力内容は保持されています。内容を整理してから出力してください。',role:'notice'}
+      ]}]};
+    }
+    function context(){const ctx=document.createElement('canvas').getContext('2d');if(!ctx)throw new Error('文字幅を確認できません。');return ctx;}
+    function setFont(ctx,bold=false,size=FONT_PX){font(ctx,size,bold);}
+    function units(value){let count=0;for(const ch of value)count+=ch===' '?0.34:ch.codePointAt(0)<=0x7f?0.62:1;return count;}
+    // 改行をrawへ残し、改頁後にも元の文章を再構成できるようにする。
+    function wrapRaw(value,ctx,bold=false){
+      const parts=String(value).split(/(\r\n|\r|\n)/),rows=[];
+      setFont(ctx,bold);
+      const fits=text=>ctx.measureText(text).width<=WIDTH-12&&units(text)*FONT_PX*1.08<=WIDTH-12;
+      const segmenter=typeof Intl.Segmenter==='function'?new Intl.Segmenter('ja',{granularity:'grapheme'}):null;
+      for(let p=0;p<parts.length;p+=2){
+        const paragraph=parts[p],ending=parts[p+1]||'';
+        let line='';
+        const segments=segmenter?Array.from(segmenter.segment(paragraph),part=>part.segment):Array.from(paragraph);
+        for(const segment of segments){
+          if(line&&!fits(line+segment)){rows.push({text:line,raw:line});line='';}
+          if(!fits(segment))throw new Error('1文字の組合せが紙面幅を超えています。');
+          line+=segment;
+        }
+        rows.push({text:line,raw:line+ending});
+      }
+      return rows;
+    }
+    function plan(){
+      const nodes=project.topology?.nodes||[],ids=[];
+      let total=0;
+      for(const node of nodes){
+        const count=Array.from(String(node.detail??'')).length;
+        if(count>NODE_LIMIT)return failure('機器の詳細は1件'+NODE_LIMIT+'文字以内です（現在'+count+'文字）。');
+        total+=count;
+      }
+      if(total>TOTAL_LIMIT)return failure('詳細の合計は'+TOTAL_LIMIT+'文字以内です（現在'+total+'文字）。');
+      if(!nodes.some(node=>String(node.detail??'')))return {pages:[],error:null,overflowNodeIds:[]};
+      try{
+        const ctx=context(),bounds=v1931OutputBounds(),scale=Math.min(.92,1444/bounds.bw,528/bounds.bh);
+        if(!Number.isFinite(scale)||scale<=0)throw new Error('構成図の出力倍率を確認できません。');
+        const overflow=nodes.filter(node=>{
+          const raw=String(node.detail??'');if(!raw)return false;
+          const width=topoGeom(node).w-64;
+          const ppt=v1923PptSafeText(raw,width*scale,16*scale,Math.max(4.6,6*scale));
+          setFont(ctx,false,8.6);
+          const canvasText=v2003Name(raw);
+          return ppt!==raw||/[\r\n]/.test(canvasText)||ctx.measureText(canvasText).width>width-3;
+        });
+        ids.push(...overflow.map(node=>node.id));
+        const pages=[];let rows=[];
+        const flush=()=>{if(!rows.length)return;pages.push({kind:KIND,rows});rows=[];if(pages.length>PAGE_LIMIT)throw new Error('詳細続頁は'+PAGE_LIMIT+'ページ以内に整理してください。');};
+        for(const node of overflow){
+          const body=wrapRaw(String(node.detail),ctx).map(row=>({...row,role:'detail',nodeId:node.id}));
+          let cursor=0,continued=false;
+          while(cursor<body.length){
+            const caption=String(node.name||'名称未設定')+' ['+String(node.id||'ID未設定')+']'+(continued?'（続き）':'');
+            const heading=wrapRaw(caption,ctx,true).map(row=>({text:row.text,role:'name',nodeId:node.id}));
+            const location=wrapRaw('設置場所: '+String(node.location||'未記入'),ctx).map(row=>({text:row.text,role:'location',nodeId:node.id}));
+            const identification=[...heading,...location];
+            if(identification.length>=ROWS)throw new Error('機器名・設置場所だけで1ページを超えています。識別情報を整理してください。');
+            if(rows.length&&ROWS-rows.length<identification.length+Math.min(2,body.length-cursor))flush();
+            rows.push(...identification);
+            const take=Math.min(ROWS-rows.length,body.length-cursor);
+            rows.push(...body.slice(cursor,cursor+take));cursor+=take;
+            if(cursor<body.length){flush();continued=true;}
+            else if(rows.length<ROWS)rows.push({text:'',role:'gap'});
+          }
+        }
+        flush();return {pages,error:null,overflowNodeIds:ids};
+      }catch(error){return failure(error.message||'詳細続頁を作成できません。',ids);}
+    }
+    function drawCanvas(canvas,item,idx){
+      const ctx=canvas.getContext('2d',{alpha:false});
+      ctx.save();ctx.fillStyle='#FFFFFF';ctx.fillRect(0,0,W,H);ctx.fillStyle='#082653';ctx.fillRect(0,0,W,92.4);
+      ctx.strokeStyle='#FFFFFF';ctx.lineWidth=1.1;ctx.beginPath();ctx.moveTo(1224,12);ctx.lineTo(1224,76.8);ctx.stroke();
+      ctx.strokeStyle='#D8E1E8';ctx.lineWidth=.8;ctx.beginPath();ctx.moveTo(16,880);ctx.lineTo(1584,880);ctx.stroke();
+      header(ctx,idx);title(ctx,idx,'構成ノードの詳細（全文）','構成図で省略される詳細を記載しています。');
+      for(const [i,row] of item.rows.entries()){
+        setFont(ctx,row.role==='name');ctx.fillStyle=row.role==='name'?'#083F59':row.role==='location'?'#008F8A':'#1F2937';ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText(row.text,X0,Y0+i*LINE_H);
+      }
+      ctx.restore();
+    }
+    function drawPpt(slide,item,idx){
+      nativeBase(slide,item,idx,'構成ノードの詳細（全文）','構成図で省略される詳細を記載しています。');
+      for(const [i,row] of item.rows.entries())slide.addText(row.text,{
+        x:X(X0),y:Y(Y0+i*LINE_H),w:Wd(WIDTH),h:Ht(LINE_H),margin:0,fontFace:V1923_PPT_FONT,fontSize:FONT_PT,
+        color:row.role==='name'?'083F59':row.role==='location'?'008F8A':'1F2937',bold:row.role==='name',valign:'top',align:'left',nvsMiiFixedText:true
+      });
+    }
+    const basePages=pageList,baseDraw=drawPage,baseValidate=validate;
+    pageList=function(){const base=basePages(),extra=plan().pages;if(!extra.length)return base;return base.flatMap(item=>item.kind==='system'?[item,...extra]:[item]);};
+    drawPage=async function(canvas,item,idx){if(item.kind===KIND)return drawCanvas(canvas,item,idx);return baseDraw(canvas,item,idx);};
+    validate=function(){const errors=baseValidate(),error=plan().error;return error?[...errors,error]:errors;};
+    window.__nvsMiiTopologyNotes={drawPpt,
+      lead(){const result=plan();return m2020SystemLead()+(result.pages.length?(result.error?' ／ 詳細の出力制限は次頁をご確認ください':' ／ 詳細全文は次頁以降に記載'):'');},
+      assertOutput(){const error=plan().error;if(error)throw new Error(error);}
+    };
+    if(window.MII_TEST)window.MII_TEST.nvsTopologyNotes=()=>clone(plan());
+  };
+  const marker='  // v2.0.19: equipment-list quantity sync only.';
+  replace(marker,'('+install.toString()+')();\n'+marker);
+  replace("else if(it.kind==='system')pSystem(sl,it,i+1);","else if(it.kind==='system')pSystem(sl,it,i+1);else if(it.kind==='nvs-system-detail')window.__nvsMiiTopologyNotes.drawPpt(sl,it,i+1);");
+  replace('fitFs=v113FitFont(raw,o)','fitFs=o.nvsMiiFixedText?Number(o.fontSize):v113FitFont(raw,o)');
+  replace('<a:normAutofit/></a:bodyPr>','${o.nvsMiiFixedText?\'<a:noAutofit/>\':\'<a:normAutofit/>\'}</a:bodyPr>');
+  replace('async function buildPptxBlob(){','async function buildPptxBlob(){window.__nvsMiiTopologyNotes.assertOutput();');
+  replace('text(ctx,m2020SystemLead(),48,150,1498,18,','text(ctx,window.__nvsMiiTopologyNotes.lead(),48,150,1498,18,');
+  replace('addTxt(slide,m2020SystemLead(),48,150,1498,18,','addTxt(slide,window.__nvsMiiTopologyNotes.lead(),48,150,1498,18,');
+  const issueKind="function v1929IssueKind(raw){const x=String(raw||'');";
+  replace(issueKind,issueKind+"if(x.startsWith('接続図：詳細続頁 — '))return['出力制限','入力内容は保持されています。表示された理由を確認し、内容を整理してから出力してください。'];");
+  return source;
+}
+
+// 原版の写真UI・画像正規化を保ち、非同期写真を元の案件・エリア・要求へ固定する。
+function nvsMiiPhotoSource(source){
+  const replace=(needle,value)=>{const at=source.indexOf(needle);if(at<0)throw new Error('MIIの写真処理を確認できません: '+needle.slice(0,70));source=source.slice(0,at)+value+source.slice(at+needle.length);};
+  const helpers=`let nvsMiiPhotoEpoch=0,nvsMiiPhotoSeq=0;const nvsMiiPhotoRequests=new Map();
+  function nvsMiiInvalidatePhotos(){nvsMiiPhotoEpoch++;nvsMiiPhotoRequests.clear();}
+  function nvsMiiPhotoRowId(row){if(row&&!row._nvsId)row._nvsId='mii-'+(crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2));return row?._nvsId;}
+  function nvsMiiPhotoOwner(el){const kind=el.dataset.kind,i=Number(el.dataset.i),p=Number(el.dataset.p),row=kind==='moshimie'?project.moshimie?.[i]:null;
+    return {epoch:nvsMiiPhotoEpoch,kind,p,row,id:nvsMiiPhotoRowId(row),diagnostics:kind==='imamiru'?(project.imamiru||[]).map(row=>({row,id:nvsMiiPhotoRowId(row)})):null};}
+  function nvsMiiResolvePhoto(owner){
+    if(!owner||owner.epoch!==nvsMiiPhotoEpoch)throw new Error('写真の読込中に入力が切り替わったため取り込みを中止しました。元の写真は変更していません。');
+    let i=0;
+    if(owner.kind==='moshimie'){
+      const id=owner.id||owner.row?._nvsId;i=(project.moshimie||[]).findIndex(row=>id?row._nvsId===id:row===owner.row);
+      if(i<0)throw new Error('写真の読込先エリアが変更・削除されたため取り込みを中止しました。別のエリアには登録していません。');
+    }else if(owner.kind!=='imamiru'||owner.diagnostics.length!==(project.imamiru||[]).length||!owner.diagnostics.every((saved,index)=>{const id=saved.id||saved.row?._nvsId,row=project.imamiru[index];return id?row._nvsId===id:row===saved.row;}))throw new Error('写真の読込先の診断記録が切り替わったため取り込みを中止しました。');
+    return {dataset:{kind:owner.kind,i:String(i),p:String(owner.p)}};
+  }
+  function nvsMiiPhotoKey(el){const row=el.dataset.kind==='moshimie'?project.moshimie?.[Number(el.dataset.i)]:null;return [el.dataset.kind,row?._nvsId||el.dataset.i,el.dataset.p].join(':');}
+  function nvsMiiBeginPhoto(el){
+    const owner={...el.__nvsMiiPhotoOwner},target=nvsMiiResolvePhoto(owner);
+    if(owner.kind==='moshimie')owner.id=project.moshimie[Number(target.dataset.i)]._nvsId||owner.id;
+    const key=nvsMiiPhotoKey(target),token=++nvsMiiPhotoSeq;nvsMiiPhotoRequests.set(key,token);return {owner,key,token};
+  }
+  function nvsMiiCommitPhoto(request,data){
+    const target=nvsMiiResolvePhoto(request.owner);
+    if(nvsMiiPhotoRequests.get(request.key)!==request.token)throw new Error('写真の読込後に別の取込・削除操作があったため、古い取り込みを中止しました。');
+    nvsMiiSetPhoto(target,data);nvsMiiPhotoRequests.delete(request.key);
+  }
+  `;
+  replace("function bindPhotos(root){root.querySelectorAll('.photoSlot').forEach(el=>{",helpers+"function bindPhotos(root){root.querySelectorAll('.photoSlot').forEach(el=>{el.__nvsMiiPhotoOwner=nvsMiiPhotoOwner(el);");
+  // 最初のdropとIIFE内のpickPhotoだけを変更。後段の別global版には触らない。
+  for(const call of ["normalizePhotoFile(f,el.dataset.kind==='moshimie'?16/9:null)",'normalizePhotoFile(f)']){
+    replace('const data=await '+call+';setPhoto(el,data);','const request=nvsMiiBeginPhoto(el);const data=await '+call+';nvsMiiCommitPhoto(request,data);');
+  }
+  replace('function setPhoto(el,data){',"function setPhoto(el,data){const target=nvsMiiResolvePhoto(el.__nvsMiiPhotoOwner);nvsMiiPhotoRequests.delete(nvsMiiPhotoKey(target));return nvsMiiSetPhoto(target,data);}function nvsMiiSetPhoto(el,data){");
+  // 写真Undoも行番号ではなく入力世代・エリアIDに属する。別エリアの読込は失効させない。
+  replace('photoUndo.push({kind,i:0,p,old:project.imamiruPhotos[p]});','photoUndo.push({kind,i:0,p,epoch:nvsMiiPhotoEpoch,old:project.imamiruPhotos[p]});');
+  replace('photoUndo.push({kind,i,p,old:project.moshimie[i].photos[p]});','photoUndo.push({kind,i,p,epoch:nvsMiiPhotoEpoch,rowId:nvsMiiPhotoRowId(project.moshimie[i]),old:project.moshimie[i].photos[p]});');
+  const undo='function undoPhoto(kind,area){for(let j=photoUndo.length-1;j>=0;j--){const u=photoUndo[j];if(u.kind===kind&&(kind!==\'moshimie\'||u.i===area)){photoUndo.splice(j,1);if(kind===\'imamiru\')project.imamiruPhotos[u.p]=u.old;else if(project.moshimie[u.i])project.moshimie[u.i].photos[u.p]=u.old;renderAll();return;}}}';
+  replace(undo,`function undoPhoto(kind,area){
+    const row=kind==='moshimie'?project.moshimie[area]:null;if(kind==='moshimie'&&!row)return;
+    const rowId=nvsMiiPhotoRowId(row);
+    for(let j=photoUndo.length-1;j>=0;j--){const u=photoUndo[j];if(u.epoch===nvsMiiPhotoEpoch&&u.kind===kind&&(kind!=='moshimie'||u.rowId===rowId)){
+      nvsMiiPhotoRequests.delete(nvsMiiPhotoKey({dataset:{kind,i:String(area||0),p:String(u.p)}}));
+      photoUndo.splice(j,1);if(kind==='imamiru')project.imamiruPhotos[u.p]=u.old;else row.photos[u.p]=u.old;renderAll();return;
+    }}
+  }`);
+  replace('async function buildPptxBlob(){',"async function buildPptxBlob(){if(window.__nvsMiiPhotoLoads)throw new Error('写真を読み込んでいます。完了を待ってからPowerPointを出力してください。');");
+  replace('window.MII_TEST={version:VERSION,','window.MII_TEST={version:VERSION,nvsInvalidatePhotos:nvsMiiInvalidatePhotos,');
+  replace('setProject:p=>{const next=normalizeProject(p);','setProject:(p,options={})=>{const next=normalizeProject(p);if(!options.preservePhotoOwner)nvsMiiInvalidatePhotos();');
+  replace('project=next;miiV118SampleInUse=false;photoUndo=[];','nvsMiiInvalidatePhotos();project=next;miiV118SampleInUse=false;photoUndo=[];');
+  return source;
+}
+
+// 原版の出力内容を保ち、案件・構成・保存版をファイル名で識別する。
+function nvsMiiNamePart(value,limit){
+  const clean=Array.from(String(value??''),char=>{const code=char.codePointAt(0);return /[\\/:*?"<>|\x00-\x1f]/.test(char)||(code>=0xd800&&code<=0xdfff)?'_':char;}).join('');
+  const encoder=new TextEncoder();if(encoder.encode(clean).length<=limit)return clean;
+  // 同じ先頭を持つ長い案件名も、末尾を省略したときに取り違えない。
+  let hash=2166136261;for(const byte of encoder.encode(clean)){hash^=byte;hash=Math.imul(hash,16777619);}
+  const suffix='~'+(hash>>>0).toString(16).padStart(8,'0');let head='',bytes=0;
+  for(const char of clean){const size=encoder.encode(char).length;if(bytes+size>limit-suffix.length)break;head+=char;bytes+=size;}
+  return head+suffix;
+}
+function nvsMiiDownloadSource(source){
+  const replace=(needle,value)=>{if(source.split(needle).length!==2)throw new Error('MIIの出力命名処理を確認できません: '+needle.slice(0,70));source=source.replace(needle,value);};
+  replace('function exportJson(){const out=clone(project);out.version=VERSION;dl(`${sanitizeName(project.customer)}_${sanitizeName(project.site)}.json`,',
+    "function exportJson(){const output=window.__nvsMiiDownloadContext('json');const out=clone(project);out.version=VERSION;output.assertCurrent();dl(output.filename,");
+  replace("const blob=await buildPptxBlob();dl(`${sanitizeName(project.customer)}_${sanitizeName(project.site)}_MII_Report.pptx`,",
+    "const output=window.__nvsMiiDownloadContext('pptx');const blob=await buildPptxBlob(output);output.assertCurrent();dl(output.filename,");
+  replace('const blob=await patchPptBlob(await api.buildPptxBlob());',"const output=window.__nvsMiiDownloadContext('pptx');const raw=await api.buildPptxBlob(output);output.assertCurrent();const blob=await patchPptBlob(raw);");
+  replace('dl(`${safe(p.customer)}_${safe(p.site)}_MII_Report.pptx`,blob,PPT_MIME);','output.assertCurrent();dl(output.filename,blob,PPT_MIME);');
+  // テンプレート読込を待つ間の変更を、全ページの同期描画より前に止める。
+  // 圧縮待ち中に入力を元へ戻しても、途中の別内容を出力へ混ぜない。
+  replace('async function buildPptxBlob(){','async function buildPptxBlob(nvsOutput=null){');
+  replace('const zip=await JSZip.loadAsync(b64u(TEMPLATE_B64)),pages=pageList();','const zip=await JSZip.loadAsync(b64u(TEMPLATE_B64));nvsOutput?.assertCurrent();const pages=pageList();');
+  return source;
+}
+function nvsMiiInstallDownload(session,sourceVersion=null){
+  const win=session.frame.contentWindow;
+  win.__nvsMiiDownloadContext=extension=>{
+    if(session.closed||!session.ready)throw new Error('終了したMII画面からは出力できません。入力フォームを開き直してください。');
+    nvsMiiAssertSettled(session);nvsMiiAssertPhotosSettled(session);session.flush();
+    nvsMiiAssertTopologyQuantities(session.owner,session.scenario);
+    const api=win.MII_TEST,stamp=JSON.stringify(api.getProject()),outputStamp=nvsMiiOutputStamp(session.owner),scenario=session.scenario;
+    const filename=nvsMiiFileBase(session,sourceVersion)+'.'+extension,ownsCurrent=session.owner===project;
+    return {filename,assertCurrent(){
+      if(session.closed||nvsMiiSession!==session||(ownsCurrent&&project!==session.owner))throw new Error('案件画面が切り替わったため出力を中止しました。開き直して出力してください。');
+      nvsMiiAssertSettled(session);nvsMiiAssertPhotosSettled(session);
+      if(session.scenario!==scenario||JSON.stringify(api.getProject())!==stamp||nvsMiiOutputStamp(session.owner)!==outputStamp||nvsMiiFileBase(session,sourceVersion)+'.'+extension!==filename)throw new Error('資料の生成中に内容または構成が変更されたため出力を中止しました。変更後の内容で再度出力してください。');
+    }};
+  };
+}
+
+// VASの機器一覧は個体または台帳グループごとの行。構成図の種別合計を各行へ掛けない。
+function nvsMiiQuantitySource(source){
+  const quantity="const type=v2019EqType(e),qty=type?Number(totals[type]||0):0;";
+  if(!source.includes(quantity))throw new Error('MIIの機器一覧数量処理を確認できません');
+  return source.replace(quantity,`const nvsQuantity=window.__nvsMiiEquipmentQuantity?.(e._nvsId);
+      if(nvsQuantity!==undefined){
+        // 入力済みの型番・備考を削らず、出力時だけ当該行の台帳数量を付記する。
+        if(Number.isFinite(nvsQuantity)&&nvsQuantity>1){
+          e.name=String(e.name||'')+' ×'+nvsQuantity+'台';
+          e.note=[e.note,'台帳：×'+nvsQuantity+'台'].filter(Boolean).join('／');
+        }
+        return e;
+      }
+      `+quantity);
+}
+
+// 原版のJSON正規化を保持し、非同期読込を案件・構成・要求の寿命へ固定する。
+function nvsMiiImportSource(source){
+  const needle='window.MII_TEST={version:VERSION,';
+  if(source.split(needle).length!==2)throw new Error('MIIのJSON受入APIを確認できません');
+  return source.replace(needle,`function nvsMiiImportProject(raw){
+    // 単体JSONの構成は読込値を保持する。過去の同一案件に由来する台帳対応も持ち込まない。
+    const incoming=clone(raw);if(Array.isArray(incoming.topology?.nodes))for(const node of incoming.topology.nodes)if(node&&typeof node==='object')delete node._nvsBinding;
+    const next=normalizeProject(incoming),before=project,wasSample=miiV118SampleInUse,photos=photoUndo,topologyUndo=topoEasy.undo,photoEpoch=nvsMiiPhotoEpoch,photoRequests=new Map(nvsMiiPhotoRequests);
+    let restored=false;
+    const rollback=()=>{if(restored)return;restored=true;project=before;miiV118SampleInUse=wasSample;photoUndo=photos;topoEasy.undo=topologyUndo;nvsMiiPhotoEpoch=photoEpoch;nvsMiiPhotoRequests.clear();for(const [key,value] of photoRequests)nvsMiiPhotoRequests.set(key,value);renderAll();};
+    try{nvsMiiResetTopologyHistory();nvsMiiInvalidatePhotos();project=next;miiV118SampleInUse=false;photoUndo=[];renderAll();}
+    catch(error){try{rollback();}catch(restoreError){throw new Error(error.message+'（元の入力の再描画にも失敗しました: '+restoreError.message+'）');}throw error;}
+    return rollback;
+  }window.MII_TEST={version:VERSION,nvsImportProject:nvsMiiImportProject,`);
+}
+function nvsMiiImportData(raw){
+  const object=value=>!!value&&typeof value==='object'&&!Array.isArray(value);
+  if(!object(raw))throw new Error('MII互換JSONの形式が不正です。');
+  // VAS案件全体の読込と、現在案件内のMII入力だけの置換を取り違えない。
+  if(object(raw.meta)&&(Array.isArray(raw.floors)||object(raw.nvs)))throw new Error('これはVASの案件JSONです。「保存した案件を開く」から読み込んでください。MII入力は変更していません。');
+  if(raw.schema==='mii.project.v1')return raw;
+  if(raw.schema!=null&&raw.schema!=='')throw new Error('このJSONの形式はMII互換JSONとして確認できません。');
+  // schemaのない旧版も読む。個別配列を一律必須にせず、既知のMII構造を組み合わせて識別する。
+  const tool=typeof raw.tool==='string'&&/^MII HTML Report Tool\b/.test(raw.tool);
+  const mode=['both','imamiru','moshimie','両方','いま診るのみ','もし見えのみ'].includes(raw.mode);
+  const name=typeof raw.customer==='string'||typeof raw.site==='string';
+  const rows=['imamiru','moshimie','equipment'].some(key=>Array.isArray(raw[key]));
+  const topology=object(raw.topology)&&(Array.isArray(raw.topology.nodes)||Array.isArray(raw.topology.links));
+  if(tool||(object(raw.system)&&(rows||topology||(mode&&name))))return raw;
+  throw new Error('MIIの入力項目が見つかりません。MII互換JSONを選択してください。現在の入力は変更していません。');
+}
+function nvsMiiInstallImport(session,{readonly=session.owner!==project}={}){
+  const win=session.frame.contentWindow,doc=win.document,api=win.MII_TEST,input=doc.getElementById('importJson'),message=session.overlay.querySelector('[data-mii-sync]'),owner=session.owner;
+  if(!input||typeof api?.nvsImportProject!=='function')throw new Error('MII互換JSONの読込保護を準備できません');
+  const nativeSetProject=api.setProject,readers=new Set();let generation=0,disposed=false;
+  const invalidated='後の入力・構成またはJSON選択を優先するため、先のJSON読込を中止しました。必要なファイルをもう一度選択してください。';
+  const invalidate=()=>{generation++;};session.invalidateMiiImport=invalidate;
+  const report=text=>{if(!session.closed&&nvsMiiSession===session&&message)message.textContent=text;};
+  const assertCurrent=request=>{
+    if(disposed||session.closed||!session.ready||nvsMiiSession!==session||session.owner!==owner||(!readonly&&project!==owner))throw new Error('案件画面が切り替わったためJSON読込を中止しました。開き直して読み込んでください。');
+    if(request.generation!==generation||request.scenario!==session.scenario)throw new Error(invalidated);
+    nvsMiiAssertSettled(session);nvsMiiAssertPhotosSettled(session);
+  };
+  // 外部からの入力全体の置換で古い読込を失効させる。同一案件の共通項目同期は維持する。
+  api.setProject=function(value,options){
+    if(!options?.preservePhotoOwner)invalidate();
+    return Reflect.apply(nativeSetProject,this,arguments);
+  };
+  const readText=file=>new Promise((resolve,reject)=>{
+    const reader=new win.FileReader();let settled=false;
+    const finish=(fn,value)=>{if(settled)return;settled=true;readers.delete(cancel);reader.onload=null;reader.onerror=null;reader.onabort=null;fn(value);};
+    const cancel=()=>{finish(reject,new Error('案件画面を閉じたためJSON読込を中止しました。'));if(reader.readyState===1)try{reader.abort();}catch(error){/* 終了時のPromiseは既に解除済み。 */}};
+    readers.add(cancel);
+    reader.onload=()=>finish(resolve,String(reader.result??''));
+    reader.onerror=()=>finish(reject,new Error('MII互換JSONファイルを読み込めませんでした。'));
+    reader.onabort=()=>finish(reject,new Error('MII互換JSONファイルの読込を中止しました。'));
+    try{reader.readAsText(file,'utf-8');}catch(error){finish(reject,error);}
+  });
+  const restoreFields=(target,saved)=>{for(const key of Object.keys(target))if(!Object.hasOwn(saved,key))delete target[key];Object.assign(target,saved);};
+  input.onchange=async event=>{
+    const file=event.target.files?.[0];if(!file)return false;
+    const request={generation:++generation,scenario:session.scenario};
+    try{
+      assertCurrent(request);
+      const text=await readText(file);assertCurrent(request);
+      let raw;try{raw=JSON.parse(text);}catch(error){throw new Error('MII互換JSONを解析できませんでした。ファイルの内容を確認してください。');}
+      nvsMiiImportData(raw);
+      const destination=NVS_SCENARIOS[request.scenario]||request.scenario;
+      const details='ファイル: '+file.name+'\n顧客: '+String(raw.customer||'未入力')+'\n拠点: '+String(raw.site||'未入力')+'\n対象構成: '+destination+'\n\n'+
+        (readonly?'この保存版の作業コピーのMII入力を置き換えます。保存原本と現在の案件は変更しません。':
+          '現在の顧客・調査記録・選択中の構成を置き換えます。図面と既存の費用機器は残ります。置換直前の状態を案件内に「MII JSON読込前」として残します。')+'\n構成と台帳の対応は読込後に「設計」で確認してください。';
+      const accepted=await confirmModal('MII入力をJSONに置き換えますか？',details,{okLabel:'JSONに置換'});
+      assertCurrent(request);
+      if(!accepted){report('MII互換JSONの読込を取り消しました。現在の入力は変更していません。');return false;}
+      session.flush();assertCurrent(request);
+      // flushは作業コピーを検証してから反映する。途中例外に備えて、書換対象の参照・値も保持する。
+      const before={nvs:owner.nvs,photos:owner.photos,meta:{...owner.meta},devices:owner.floors.flatMap(floor=>floor.devices.map(device=>({device,value:nvsClone(device)})))};
+      let snapshot=null,rollback=null;
+      try{
+        if(!readonly)snapshot=nvsSnapshot('MII JSON読込前');
+        assertCurrent(request);
+        rollback=api.nvsImportProject(raw);session.flush();
+      }catch(error){
+        let restoreError=null;
+        try{if(typeof rollback==='function')rollback();}catch(caught){restoreError=caught;}
+        // 他の処理が残した版は保持し、この要求が作成した版だけを除く。
+        const versions=owner.nvs?.milestones||before.nvs.milestones;
+        owner.nvs=before.nvs;if(snapshot)owner.nvs.milestones=versions.filter(entry=>entry.id!==snapshot.id);
+        owner.photos=before.photos;restoreFields(owner.meta,before.meta);for(const item of before.devices)restoreFields(item.device,item.value);
+        if(restoreError)throw new Error(error.message+'（元の入力の再描画にも失敗しました: '+restoreError.message+'）');
+        throw error;
+      }
+      report(readonly?'MII互換JSONを保存版の作業コピーへ読み込みました。保存原本と現在の案件は変更していません。':'MII互換JSONを読み込みました。置換前の記録は「MII JSON読込前」に残しています。案件ZIPを保存してください。');
+      return true;
+    }catch(error){report('MII互換JSONの読込を中止しました: '+(error.message||String(error)));return false;}
+    finally{input.value='';}
+  };
+  input.title='置換前に内容と対象構成を確認し、現在の入力を版へ残します';
+  // 閉じたiframeの遅延changeも拒否するため、元の無保護なhandlerには戻さない。
+  return ()=>{if(disposed)return;disposed=true;invalidate();for(const cancel of [...readers])cancel();};
+}
+
+// 構成ブロックの台帳対応は、案件・構成・当該ブロックを明示した印だけで引き継ぐ。
+function nvsMiiTopologyBinding(p,scenario,node){
+  const binding=node?._nvsBinding,projectId=p?.nvs?.projectId;
+  if(!binding||typeof binding!=='object'||Array.isArray(binding)||typeof projectId!=='string'||!projectId)return null;
+  if(binding.projectId!==projectId||binding.scenario!==scenario||typeof node.id!=='string'||!node.id||binding.id!==node.id||typeof node.type!=='string'||!node.type||binding.type!==node.type)return null;
+  if(!Array.isArray(binding.assetKeys)||binding.assetKeys.some(key=>typeof key!=='string')||typeof binding.fallbackQty!=='number'||!Number.isFinite(binding.fallbackQty))return null;
+  // Undoでは旧ブロックが現在の構成から消えているため、現在のgraph内の存在は要求しない。
+  return binding;
+}
+function nvsMiiTopologyQuantitySource(source){
+  const replace=(needle,value,count=1)=>{
+    if(source.split(needle).length!==count+1)throw new Error('MII構成数量の差込み箇所を確認できません: '+needle.slice(0,65));
+    source=source.split(needle).join(value);
+  };
+  const helpers=`function nvsMiiNodeQuantity(node){
+    const value=window.__nvsMiiTopologyQuantity?.(node);
+    return typeof value==='number'&&Number.isFinite(value)?value:undefined;
+  }
+  function nvsMiiNodeQuantityHelp(locked){return locked?'台帳と連動しています。数量は「設計」の機器台帳で変更します。図面に配置した機器は、配置図で追加・削除してください。':'同じ種類・同じ接続先の機器は1ブロックにまとめ、数量で表します。例：カメラ ×20台';}
+  function nvsMiiNodeQuantityHtml(node){
+    const value=nvsMiiNodeQuantity(node),locked=value!==undefined,qty=locked?value:Math.max(1,Number(node.qty)||1);
+    return '<label>数量<input id="easyNodeQty" type="number" min="1" max="999" value="'+qty+'" aria-describedby="nvsMiiNodeQtyHelp"'+(locked?' readonly aria-readonly="true"':'')+'></label><div id="nvsMiiNodeQtyHelp" class="topoEasyHint techHint">'+nvsMiiNodeQuantityHelp(locked)+'</div>';
+  }
+  function nvsMiiRefreshNodeQuantity(body,node){
+    const input=body.querySelector('#easyNodeQty'),help=body.querySelector('#nvsMiiNodeQtyHelp');if(!input)return;
+    const value=nvsMiiNodeQuantity(node),locked=value!==undefined;
+    input.readOnly=locked;if(locked){input.value=String(value);input.setAttribute('aria-readonly','true');}else input.removeAttribute('aria-readonly');
+    if(help)help.textContent=nvsMiiNodeQuantityHelp(locked);
+  }
+  `;
+  replace('function normalizeTopology(raw,s){',helpers+'function normalizeTopology(raw,s){');
+  // 元の正規化と後段の拡張正規化の両方を補う。任意の外部フィールドは引き継がない。
+  const normalized="return{id:String(n.id||`N${String(i+1).padStart(2,'0')}`),type:TOPO_NODE_TYPES.some(x=>x[0]===n.type)?n.type:'other',name:String(n.name||topoTypeLabel(n.type)),location:String(n.location||''),detail:String(n.detail||''),qty,col,row,x,y}";
+  // Undoが旧数量を戻しても、台帳連動中は入力・Canvas・PPTに同じ現在数量を渡す。
+  replace(normalized,normalized.replace(',qty,col,row,x,y}',',qty:nvsMiiNodeQuantity(n)??qty,col,row,x,y')+",...(n._nvsBinding&&typeof n._nvsBinding==='object'&&!Array.isArray(n._nvsBinding)?{_nvsBinding:clone(n._nvsBinding)}:{})}",2);
+  const quantity='<label>数量<input id="easyNodeQty" type="number" min="1" max="999" value="${Math.max(1,Number(n.qty)||1)}"></label><div class="topoEasyHint techHint">同じ種類・同じ接続先の機器は1ブロックにまとめ、数量で表します。例：カメラ ×20台</div>';
+  replace(quantity,'${nvsMiiNodeQuantityHtml(n)}',2);
+  replace("if(cams.length===1)cams[0].qty=Math.max(1,Number(project.system.cameraCount)||1);","if(cams.length===1&&nvsMiiNodeQuantity(cams[0])===undefined)cams[0].qty=Math.max(1,Number(project.system.cameraCount)||1);");
+  const listType="k=t.dataset.tk;n[k]=(k==='col'||k==='row')?Number(t.value):t.value;";
+  replace(listType,"k=t.dataset.tk;if(k==='type'&&n.type!==t.value)delete n._nvsBinding;n[k]=(k==='col'||k==='row')?Number(t.value):t.value;");
+  const editorType="const apply=()=>{n.type=body.querySelector('#easyNodeType')?.value||n.type;";
+  replace(editorType,"const apply=()=>{const type=body.querySelector('#easyNodeType')?.value||n.type;if(n.type!==type)delete n._nvsBinding;n.type=type;");
+  const editorQuantity="n.qty=Math.max(1,Math.min(999,Number(body.querySelector('#easyNodeQty')?.value)||1));";
+  replace(editorQuantity,"const boundQuantity=nvsMiiNodeQuantity(n);n.qty=boundQuantity===undefined?Math.max(1,Math.min(999,Number(body.querySelector('#easyNodeQty')?.value)||1)):boundQuantity;nvsMiiRefreshNodeQuantity(body,n);");
+  const build='async function buildPptxBlob(nvsOutput=null){';
+  replace(build,build+'window.__nvsMiiAssertTopologyQuantity?.();');
+  return source;
+}
+
 // MII原版の入力・描画・印刷・編集可能PPTXを隔離フレームで実行する。
 // 描画処理を維持し、案件連携と描画完了の確認だけを追加する。
 const NVS_MII_DIAG=['category','grade','target','finding','risk','proposal','priority','_miiCustomTarget'];
@@ -8937,6 +9481,8 @@ const NVS_MII_AREA=['grade','current','demo','position','height','count','result
 const NVS_MII_EQUIP=['category','name','use','location','status','note'];
 let nvsMiiSession=null;
 function nvsMiiEqual(a,b){return JSON.stringify(a)===JSON.stringify(b);}
+// 原版データ外にある確認状態と台帳数量も、再描画・生成途中の変更検査に含める。
+function nvsMiiOutputStamp(p){return JSON.stringify([[p.nvs?.diagnostics||[],p.nvs?.areas||[]].map(rows=>rows.map(row=>[row.id,row.status])),nvsMiiEquipment(p).map(row=>[row.reportKey,row.quantity])]);}
 function nvsMiiFields(row,keys){return Object.fromEntries(keys.filter(k=>row[k]!==undefined).map(k=>[k,nvsClone(row[k])]));}
 function nvsMiiPhotoSlots(p,row){
   const ids=row.photoIds||[],roles=row.photoRoles||{};
@@ -8957,7 +9503,10 @@ function nvsMiiProjection(p,scenario){
   const diagnostics=n.diagnostics.map(r=>({...nvsMiiFields(r,NVS_MII_DIAG),_nvsId:r.id}));
   const photoIds=[...new Set(n.diagnostics.flatMap(r=>r.photoIds||[]))];
   const g=nvsClone(n.topology[scenario]||{nodes:[],links:[]});
-  g.nodes=g.nodes.map(r=>{const info=nvsNodeInfo(r,p);return {...r,name:info.name,qty:info.qty};});
+  g.nodes=g.nodes.map(r=>{const info=nvsNodeInfo(r,p);delete r._nvsBinding;
+    // 同じIDの別ノードと取り違えず、原版のUndoにも台帳対応と未対応時数量を保持する。
+    const binding=r.assetKeys?.length?{_nvsBinding:{projectId:n.projectId,scenario,id:r.id,type:r.type,assetKeys:[...r.assetKeys],fallbackQty:Number(r.qty??1)}}:{};
+    return {...r,...binding,name:info.name,qty:info.qty};});
   return {schema:'mii.project.v1',customer:p.meta.customer||'',site:n.profile.site||p.meta.title||'',address:n.profile.address||'',owner:n.profile.owner||'',
     recordDays:n.system.recordDays||'',system:{...nvsClone(n.system),existingStatus:n.profile.existingStatus==='なし'?'既設なし':n.profile.existingStatus},
     reportOptions:nvsClone(n.report),imamiru:diagnostics,imamiruPhotos:photoIds.slice(0,2).map(id=>p.photos[id]?.src||null),
@@ -8969,6 +9518,8 @@ function nvsMiiSeed(p,raw){
   r.imamiru?.forEach((row,i)=>row._nvsId=n.diagnostics[i]?.id||nvsId());
   r.moshimie?.forEach((row,i)=>row._nvsId=n.areas[i]?.id||nvsId());
   r.equipment?.forEach((row,i)=>row._nvsId='asset:'+n.assets[i].id);
+  // MII単体から新規案件へ取り込む場合、以前のVAS案件の対応情報は継承しない。
+  r.topology?.nodes?.forEach(row=>delete row._nvsBinding);
   n.mii={schemaVersion:1,project:r,scenario,excludedEquipment:[]};
   n.mii.baseline=nvsMiiProjection(p,scenario);
 }
@@ -8987,7 +9538,11 @@ function nvsMiiReconcile(base,before,now){
   }
   return now;
 }
-function nvsMiiProject(p=project,scenario){
+function nvsMiiAssertTopologyQuantities(p,scenario){
+  // 原版の構成表示は1〜999台。正確に表せない値を1台等へ丸めて出力しない。
+  for(const node of p.nvs?.topology?.[scenario]?.nodes||[]){const info=nvsNodeInfo(node,p);if(!Number.isFinite(info.qty)||info.qty<1||info.qty>999)throw new Error('「'+(info.name||node.id)+'」の構成数量は'+info.qty+'台です。MII形式で表示できる数量は1〜999台です。案件データは保持しています。「設計」で台帳数量または構成の対応を確認してください。');}
+}
+function nvsMiiProject(p=project,scenario,{forSync=false}={}){
   const n=nvsEnsure(p);
   // 1.1の案件は元のMII JSONを保持したまま、初回表示時に移行する。
   if(!n.mii){const raw=n.imports.findLast(x=>x.kind==='MII')?.source;if(raw)nvsMiiSeed(p,raw);}
@@ -8997,6 +9552,7 @@ function nvsMiiProject(p=project,scenario){
     ...shared,mode:n.profile.existingStatus==='なし'||n.profile.existingStatus==='既設なし'?'moshimie':'both',
     surveyDate:'',createdDate:nvsToday().replaceAll('-','/'),existingCount:{camera:0,recorder:0,network:0,other:0}};
   if(saved&&saved.scenario!==scenario)data.topology=shared.topology;
+  if(!forSync)nvsMiiAssertTopologyQuantities(p,scenario);
   if(!saved){
     while(data.imamiru.length<7){const category=NVS_CATEGORIES[data.imamiru.length];data.imamiru.push({category,grade:'B',target:'',finding:'',risk:'',proposal:'',priority:'',_nvsId:nvsId()});}
   }
@@ -9056,7 +9612,10 @@ function nvsMiiApply(p,previous,next,scenario){
   const eqIds=new Set((next.equipment||[]).map(r=>r._nvsId));for(const id of oldEq.keys())if(!eqIds.has(id))excluded.add(id);
   if(changed(previous.topology,next.topology)){
     const before=n.topology[scenario]||{nodes:[],links:[]},g={...before,...nvsClone(next.topology)};
-    g.nodes=g.nodes.map(r=>{const old=before.nodes.find(a=>a.id===r.id);return {...old,...r,assetKeys:old?.type===r.type?old.assetKeys||[]:[]};});
+    g.nodes=g.nodes.map(r=>{const old=before.nodes.find(a=>a.id===r.id),binding=nvsMiiTopologyBinding(p,scenario,r),node={...old,...r,assetKeys:binding?[...binding.assetKeys]:[]};
+      // 名称・場所・注意事項の編集で、対応解除時に使う元の補助数量を表示値へ上書きしない。
+      if(binding&&nvsNodeInfo(node,p).linked.length)node.qty=binding.fallbackQty;
+      delete node._nvsBinding;return node;});
     const used=new Set();g.links=g.links.map(r=>{const old=before.links.find(a=>!used.has(a.id)&&a.from===r.from&&a.to===r.to&&a.kind===r.kind);if(old)used.add(old.id);return {...old,...r,id:old?.id||nvsId()};});n.topology[scenario]=g;
   }
   n.mii={...n.mii,schemaVersion:1,project:nvsClone(next),scenario,excludedEquipment:[...excluded]};
@@ -9077,63 +9636,237 @@ function nvsMiiSource(){
   const needle='getProject:()=>clone(project)';
   if(!source.includes(needle))throw new Error('MIIの案件APIが見つかりません');
   source=source.replace(needle,`getProject:()=>{for(const key of ['imamiru','moshimie','equipment'])for(const row of project[key]||[])if(!row._nvsId)row._nvsId=(key==='equipment'?'asset:':'')+'mii-'+(crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2));return clone(project)}`);
+  // 原版の構成Undoはiframe共通。外部で構成を置換したら旧構成へ戻れないよう境界を切る。
+  const setProject='setProject:p=>{project=normalizeProject(p);photoUndo=[];renderAll();}';
+  if(!source.includes(setProject))throw new Error('MIIの構成置換APIを確認できません');
+  source=source.replace('window.MII_TEST={version:VERSION,',`function nvsMiiResetTopologyHistory(){
+    if(topoEasy.open)closeEasyTopologyEditor();
+    topoEasy.undo=[];topoEasy.selectedNode=null;topoEasy.selectedNodes=[];topoEasy.selectedLink=null;topoEasy.connectFrom=null;topoEasy.connectMode=false;topoEasy.panelMode='closed';
+    topoEasy._reopenAdd=false;topoEasy._v1916ReopenAdd=false;topoEasy.message='';
+  }window.MII_TEST={version:VERSION,nvsResetTopologyHistory:nvsMiiResetTopologyHistory,`);
+  source=source.replace(setProject,`setProject:p=>{const next=normalizeProject(p);if(JSON.stringify(project?.topology)!==JSON.stringify(next.topology))nvsMiiResetTopologyHistory();project=next;photoUndo=[];renderAll();}`);
+  const jsonReplace='project=normalizeProject(raw);miiV118SampleInUse=false;photoUndo=[];';
+  if(!source.includes(jsonReplace))throw new Error('MIIのJSON置換処理を確認できません');
+  source=source.replace(jsonReplace,'const next=normalizeProject(raw);nvsMiiResetTopologyHistory();project=next;miiV118SampleInUse=false;photoUndo=[];');
+  // 空欄を先頭候補に見せず、別欄の編集でも未選択のまま保持する。既存の候補・順序は変更しない。
+  const optionsStart='return vals.map(v=>';
+  if(!source.includes(optionsStart))throw new Error('MIIの選択肢生成を確認できません');
+  source=source.replace(optionsStart,`return (String(current??'')===''&&!vals.includes('')?'<option value="" selected>未選択</option>':'')+vals.map(v=>`);
+  source=source.replace("select.dataset.miiPrevious || [...select.options].find(o => o.value !== REQUEST)?.value || ''", "select.dataset.miiPrevious ?? ([...select.options].find(o => o.value !== REQUEST)?.value || '')");
+  const freeInputValue='const value = String(input).trim();';
+  if(!source.includes(freeInputValue))throw new Error('MIIの自由入力処理を確認できません');
+  source=source.replace(freeInputValue,freeInputValue+"\n    if (value === REQUEST) { window.alert('この文字列は入力操作に使われるため登録できません。別の表記を入力してください。'); return; }");
+  // エリア名の選択では手入力した現地記録を保持する。明示した「文例を反映」は原版どおり。
+  const areaOverwrite='a.current=t.current;a.demo=t.demo;a.policy=t.policy;';
+  if(!source.includes(areaOverwrite))throw new Error('MIIのエリア選択処理を確認できません');
+  source=source.replace(areaOverwrite,"if(v93AutoText(a.current))a.current=t.current;if(v93AutoText(a.demo))a.demo=t.demo;if(v93AutoText(a.policy))a.policy=t.policy;");
+  // 構成の選択後も詳細一覧を開いたままにし、同じノードの次の項目へ進める。
+  const systemStart="function bindSystem(){const box=$('systemForm');";
+  if(!source.includes(systemStart))throw new Error('MIIの構成入力処理を確認できません');
+  source=source.replace(systemStart,systemStart+`const nvsDetailOpen=box.querySelector('.topoAdvanced')?.open;
+    const nvsActive=document.activeElement,nvsInside=box.contains(nvsActive),nvsScroll=[window.scrollX,window.scrollY];
+    const nvsNode=nvsInside&&nvsActive.dataset.tn!==undefined?{id:nvsActive.closest('tr')?.cells[0]?.textContent.trim(),key:nvsActive.dataset.tk}:null;
+    const nvsLink=nvsInside&&nvsActive.dataset.tl!==undefined?{index:+nvsActive.dataset.tl,key:nvsActive.dataset.lk,value:JSON.stringify(project.topology?.links?.[+nvsActive.dataset.tl]),count:box.querySelectorAll('[data-tl][data-lk="from"]').length}:null;`);
+  const systemBuilt="h+='</tbody></table></div></details>';box.innerHTML=h;";
+  if(!source.includes(systemBuilt))throw new Error('MIIの構成一覧を確認できません');
+  source=source.replace(systemBuilt,systemBuilt+`
+    if(nvsDetailOpen!==undefined)box.querySelector('.topoAdvanced').open=nvsDetailOpen;
+    let nvsNext=null;
+    if(nvsNode){const index=tp.nodes.findIndex(n=>n.id===nvsNode.id);if(index>=0)nvsNext=box.querySelector('[data-tn="'+index+'"][data-tk="'+nvsNode.key+'"]');}
+    if(nvsLink&&tp.links.length===nvsLink.count&&JSON.stringify(tp.links[nvsLink.index])===nvsLink.value)nvsNext=box.querySelector('[data-tl="'+nvsLink.index+'"][data-lk="'+nvsLink.key+'"]');
+    if(nvsNode||nvsLink){(nvsNext||box.querySelector('.topoAdvanced summary'))?.focus({preventScroll:true});window.scrollTo(...nvsScroll);}`);
+  const detailRender="project.topology.preset='custom';renderAll();}));box.querySelectorAll('[data-tl]')";
+  if(!source.includes(detailRender))throw new Error('MIIの構成詳細入力を確認できません');
+  source=source.replace(detailRender,"project.topology.preset='custom';renderAll(k!=='detail');}));box.querySelectorAll('[data-tl]')");
+  const presetApply='project.topology=normalizeTopology(topologyPreset(name,project.system),project.system);renderAll();';
+  if(!source.includes(presetApply))throw new Error('MIIの構成プリセット反映処理を確認できません');
+  source=source.replace(presetApply,'topoPushUndo();'+presetApply);
+  // 写真読込中のサンプル置換を防ぎ、古い写真が新しいエリアへ入らないようにする。
+  const photoLoader='function normalizePhotoFile(file){';
+  if(!source.includes(photoLoader))throw new Error('MIIの写真読込処理を確認できません');
+  source=source.replace(photoLoader,`async function normalizePhotoFile(file){window.__nvsMiiPhotoLoads=(window.__nvsMiiPhotoLoads||0)+1;try{return await nvsMiiNormalizePhotoFile(file);}finally{window.__nvsMiiPhotoLoads--;}}function nvsMiiNormalizePhotoFile(file){`);
   // 原版の2エリア/頁・10機器/頁を保持し、入力・読込の件数制限だけを拡張する。
   for(const key of ['moshimie','equipment']){
     source=source.replaceAll(`p.${key}.slice(0,20)`,`p.${key}.slice(0,1000)`);
     source=source.replaceAll(`(project.${key}||[]).length>=20`,`(project.${key}||[]).length>=1000`);
     source=source.replaceAll(`project.${key}.length>=20`,`project.${key}.length>=1000`);
   }
-  return source;
+  return nvsMiiTopologyQuantitySource(nvsMiiImportSource(nvsMiiQuantitySource(nvsMiiDownloadSource(nvsMiiPhotoSource(nvsMiiTopologyNotesSource(nvsMiiConfirmationSource(source)))))));
 }
-function nvsMiiFlush(){return nvsMiiSession?.flush();}
+// 帳票内の固定チェックと入力検査の結果を区別する。原版の描画・出力は変更しない。
+function nvsMiiReadiness(api){
+  try{
+    if(typeof api?.validate!=='function')throw new Error('検査APIなし');
+    const issues=api.validate();
+    if(!Array.isArray(issues)||issues.some(issue=>typeof issue!=='string'))throw new Error('検査結果不正');
+    return {state:issues.length?'draft':'ready',count:issues.length,text:issues.length?
+      `作成途中：入力不足・不一致 ${issues.length} 件。プレビューのチェック表示は調査完了を示しません。`:
+      '入力チェック通過（現地確認完了を意味しません）。内容を確認して出力してください。'};
+  }catch(error){return {state:'unknown',count:null,text:'入力チェックを取得できません。入力の完了は未確認です。案件に戻って開き直してください。'};}
+}
+function nvsMiiAssertSettled(session=nvsMiiSession){
+  const editor=session?.frame.contentDocument?.getElementById('miiLongEditorShade');
+  if(editor){editor.querySelector('textarea')?.focus();throw new Error('拡大編集で「入力内容を反映」するか、キャンセルしてから移動・保存してください。');}
+}
+function nvsMiiPhotosPending(session=nvsMiiSession){return !session?.closed&&Number(session?.frame.contentWindow?.__nvsMiiPhotoLoads||0)>0;}
+function nvsMiiAssertPhotosSettled(session=nvsMiiSession){if(nvsMiiPhotosPending(session))throw new Error('写真を読み込んでいます。完了を待ってから保存・出力・案件を閉じる操作をしてください。');}
+function nvsMiiFlush(){nvsMiiAssertSettled();nvsMiiAssertPhotosSettled();return nvsMiiSession?.flush();}
+function nvsMiiFileBase(session,sourceVersion=null){
+  const mode=session.frame.contentWindow.MII_TEST?.getProject().mode;
+  const kind=mode==='imamiru'?'既設診断':mode==='moshimie'?'現地調査':'診断・提案書';
+  const prefix='NVS_MII'+kind+'_',scenario=NVS_SCENARIOS[session.scenario]||session.scenario||'提案';
+  let version='';
+  if(sourceVersion){
+    const date=new Date(sourceVersion.date||session.owner.nvs?.savedAt||'');
+    const stamp=Number.isNaN(date.getTime())?'':date.toISOString().replace(/[-:.]/g,'');
+    version='_保存版_'+nvsMiiNamePart(sourceVersion.label||'名称未設定',54)+(stamp?'_'+stamp:'');
+  }else if(session.owner!==project)version='_保存版';
+  const suffix='_'+nvsMiiNamePart(scenario,24)+version;
+  const budget=240-new TextEncoder().encode(prefix+suffix).length;
+  return prefix+nvsMiiNamePart(session.owner.meta?.title||'無題',budget)+suffix;
+}
+function nvsMiiInstallPrint(session,sourceVersion=null){
+  const win=session.frame.contentWindow,doc=win.document,nativePrint=win.print;let active=null,disposed=false;
+  const wrapped=function(...args){
+    if(disposed||session.closed||!session.ready)throw new Error('終了したMII画面からは印刷できません。入力フォームを開き直してください。');
+    if(active)return;
+    nvsMiiAssertSettled(session);nvsMiiAssertPhotosSettled(session);session.flush();
+    nvsMiiAssertTopologyQuantities(session.owner,session.scenario);
+    const title=nvsMiiFileBase(session,sourceVersion),parentTitle=document.title,frameTitle=doc.title,remove=[];
+    const token={finish(){
+      if(active!==token)return;active=null;for(const cleanup of remove)cleanup();
+      // 後から別の出力が設定したタイトルを、終了の遅い印刷で戻さない。
+      if(document.title===title)document.title=parentTitle;if(doc.title===title)doc.title=frameTitle;
+    }};active=token;
+    document.title=title;doc.title=title;
+    for(const target of [win,window]){
+      target.addEventListener('afterprint',token.finish);remove.push(()=>target.removeEventListener('afterprint',token.finish));
+      if(target.matchMedia){const media=target.matchMedia('print'),change=event=>{if(!event.matches)token.finish();};
+        if(media.addEventListener){media.addEventListener('change',change);remove.push(()=>media.removeEventListener('change',change));}
+        else if(media.addListener){media.addListener(change);remove.push(()=>media.removeListener(change));}
+      }
+    }
+    try{return nativePrint.apply(win,args);}catch(error){token.finish();throw error;}
+  };
+  win.print=wrapped;
+  // 破棄後に原版の遅延コールバックが動いても、閉じた画面を印刷しない。
+  return ()=>{disposed=true;active?.finish();};
+}
 async function nvsOpenMii(source=project,options={}){
-  if(nvsMiiSession){nvsMiiSession.frame.focus();return nvsMiiSession;}
+  if(nvsMiiSession){
+    const old=nvsMiiSession;
+    if(old.owner===source&&old.host===options.host){old.activate();old.frame.focus();return old;}
+    old.close({render:false,restoreFocus:false});
+  }
   if(source===project)nvsSyncBasic(source);
   const {data,scenario}=nvsMiiProject(source,options.scenario),readonly=source!==project;
   const overlay=document.createElement('div'),focus=document.activeElement;
-  overlay.className='nvsMiiOverlay';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','診断・提案書 MII形式');
+  const embedded=!!options.host;
+  overlay.className='nvsMiiOverlay'+(embedded?' nvsMiiEmbedded':'');overlay.setAttribute('role',embedded?'region':'dialog');if(!embedded)overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','診断・提案書 MII形式');
   overlay.innerHTML=`<header class="nvsMiiHeader"><div><strong>診断・提案書 <span>MII形式</span></strong><p data-mii-sync>元の入力項目・レイアウトで準備中…</p></div><div class="nvsActions"><label>出力する構成 <select data-mii-scenario>${Object.entries(NVS_SCENARIOS).map(([k,v])=>`<option value="${k}" ${k===scenario?'selected':''}>${v}</option>`).join('')}</select></label>${readonly?'':nvsButton('案件ZIPを保存','mii-save','',true)}${nvsButton(readonly?'保存版を閉じる':'案件に戻る','mii-close')}</div></header><nav class="nvsMiiNav" aria-label="資料の入力箇所">${[['baseForm','基本情報'],['imamiruForm','既設診断'],['moshimieForm','エリア調査'],['systemForm','構成図'],['equipmentForm','機器一覧']].map(([id,label])=>`<button data-mii-section="${id}">${label}</button>`).join('')}<span>入力項目・自由入力・写真・図形編集はMII原版と共通</span></nav><iframe title="MII形式の入力・プレビュー・PowerPoint出力"></iframe>`;
-  document.body.appendChild(overlay);const frame=overlay.querySelector('iframe');
-  let last=null,timer=null,poll=null,failed=false;const message=overlay.querySelector('[data-mii-sync]');
-  const session={frame,overlay,owner:source,scenario,ready:false,
-    flush(){if(!session.ready||failed)return;if(!readonly&&project!==source)throw new Error('案件が切り替わったため同期を中止しました');const next=frame.contentWindow.MII_TEST.getProject();if(nvsMiiEqual(last,next))return;
+  (options.host||document.body).appendChild(overlay);const frame=overlay.querySelector('iframe');frame.style.visibility='hidden';
+  if(embedded){overlay.querySelector('[data-nvs-action="mii-close"]').remove();overlay.querySelector('[data-nvs-action="mii-save"]')?.remove();}
+  const readiness=document.createElement('div');readiness.className='nvsNotice nvsActions';readiness.dataset.miiReadiness='pending';
+  readiness.innerHTML='<span role="status" aria-live="polite">入力チェックを準備中…</span><button type="button" class="nvsBtn" data-nvs-action="mii-issues" hidden>不足項目を確認</button>';
+  overlay.insertBefore(readiness,frame);
+  const readinessText=readiness.querySelector('span'),issuesButton=readiness.querySelector('button');
+  const scenarioSelect=overlay.querySelector('[data-mii-scenario]');scenarioSelect.disabled=true;
+  const refreshReadiness=()=>{const result=nvsMiiReadiness(frame.contentWindow?.MII_TEST);readiness.dataset.miiReadiness=result.state;if(readinessText.textContent!==result.text)readinessText.textContent=result.text;issuesButton.hidden=result.state!=='draft';return result;};
+  let last=null,timer=null,poll=null,failed=false,loadTimer=null,finishLoad=null,outputStamp=null;const message=overlay.querySelector('[data-mii-sync]');
+  const session={frame,overlay,host:options.host,owner:source,scenario,ready:false,closed:false,suspended:false,
+    flush(){if(!session.ready||failed||session.closed)return;refreshReadiness();if(!readonly&&project!==source)throw new Error('案件が切り替わったため同期を中止しました');const api=frame.contentWindow.MII_TEST,live=api.getProject();if(nvsMiiEqual(last,live))return;
+      // 非表示中に完了した写真も保存する。別タブで編集した共通項目は最新の案件側を優先する。
+      // 表示できない台帳数量でも、非表示中に完了した写真と元の数値は案件保存へ回収する。
+      const next=session.suspended?nvsMiiReconcile(live,last,nvsMiiProject(source,session.scenario,{forSync:true}).data):live;
+      // 非表示iframeは書き換えない。原版の正規化で範囲外の入力値が丸められるのを防ぎ、復帰時に表示を更新する。
       // 作業コピーで検証してから反映し、失敗時に案件を部分更新しない。
       const copy={...source,meta:nvsClone(source.meta),nvs:nvsClone(source.nvs),photos:{...source.photos},floors:source.floors.map(f=>({...f,devices:nvsClone(f.devices)}))};nvsMiiApply(copy,last,next,session.scenario);
       source.nvs=copy.nvs;source.photos=copy.photos;Object.assign(source.meta,copy.meta);
       source.floors.forEach((f,i)=>{for(const device of f.devices){const edited=copy.floors[i].devices.find(d=>d.id===device.id);if(edited)Object.assign(device,edited);}});
-      last=next;if(!readonly)markDirty();message.textContent=readonly?'保存版の作業用コピー（現在の案件は変更しません）':'案件へ反映済み · 保管・引継ぎ前に案件ZIPを保存してください';
+      if(nvsOverlay?._owner===source){nvsOverlay.querySelector('[data-nvs-customer]').textContent=source.meta.customer||'顧客未登録';}
+      last=live;if(!readonly)markDirty();message.textContent=readonly?'保存版の作業用コピー（現在の案件は変更しません）':'案件へ反映済み · 保管・引継ぎ前に案件ZIPを保存してください';
     },
-    close(){session.flush();clearTimeout(timer);clearInterval(poll);document.removeEventListener('keydown',key,true);window.removeEventListener('beforeunload',unload);overlay.remove();nvsMiiSession=null;if(nvsOverlay)nvsRender();if(focus?.isConnected)focus.focus();return true;}};
+    suspend(){nvsMiiAssertSettled(session);session.flush();session.suspended=true;clearTimeout(timer);clearInterval(poll);poll=null;},
+    activate(){
+      if(session.closed)return;
+      if(session.ready&&session.suspended){
+        const api=frame.contentWindow.MII_TEST,live=api.getProject(),result=nvsMiiProject(source,session.scenario);
+        // 非表示後に完了した写真等も、別画面の変更がない項目では保持する。
+        const merged=nvsMiiReconcile(live,last,result.data);
+        // 別画面で共通情報が変わった時だけ更新。再表示だけで原版の編集状態を作り直さない。
+        if(!nvsMiiEqual(live,merged))api.setProject(merged,{preservePhotoOwner:true});
+        else if(outputStamp!==nvsMiiOutputStamp(source))void api.ensureRendered().catch(error=>{message.textContent='確認状況の表示更新に失敗: '+error.message;});
+        outputStamp=nvsMiiOutputStamp(source);
+      }
+      session.suspended=false;if(session.ready){session.flush();refreshReadiness();if(!poll)poll=setInterval(safeFlush,900);}
+    },
+    dispose(){
+      if(session.closed)return;session.closed=true;clearTimeout(timer);clearInterval(poll);clearTimeout(loadTimer);finishLoad?.(false);frame.onload=null;
+      session.cleanupImport?.();session.cleanupPrint?.();document.removeEventListener('keydown',key,true);window.removeEventListener('beforeunload',unload);overlay.remove();if(nvsMiiSession===session)nvsMiiSession=null;
+    },
+    close(opts={}){nvsMiiAssertSettled(session);nvsMiiAssertPhotosSettled(session);session.flush();session.dispose();if(opts.render!==false&&nvsOverlay)nvsRender();if(opts.restoreFocus!==false&&focus?.isConnected)focus.focus();return true;}};
   nvsMiiSession=session;
   const safeFlush=()=>{try{session.flush();}catch(error){message.textContent='案件への反映に失敗: '+error.message;message.classList.add('nvsNotice');}};
   const schedule=()=>{clearTimeout(timer);timer=setTimeout(safeFlush,180);};
   const unload=()=>safeFlush();window.addEventListener('beforeunload',unload);
-  const key=e=>{if(e.target===frame)return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();if(!readonly){session.flush();void nvsSave();}}};document.addEventListener('keydown',key,true);
-  overlay.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;try{
+  const key=e=>{if(e.target===frame||session.suspended||embedded)return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();if(!readonly)void nvsSave();}};document.addEventListener('keydown',key,true);
+  overlay.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;e.stopPropagation();try{
     if(b.dataset.nvsAction==='mii-close')session.close();
-    if(b.dataset.nvsAction==='mii-save'){session.flush();void nvsSave();}
+    if(b.dataset.nvsAction==='mii-save')void nvsSave();
+    if(b.dataset.nvsAction==='mii-issues'){
+      if(!session.ready||refreshReadiness().state!=='draft')return;
+      const doc=frame.contentDocument;if(doc.body.classList.contains('previewOnly'))doc.getElementById('showPreview').click();
+      const status=doc.getElementById('status');if(status.getAttribute('aria-expanded')!=='true')status.click();
+      (doc.querySelector('.v1929IssuePopup .v1929IssueItem')||status).focus({preventScroll:true});
+    }
     if(b.dataset.miiSection){const doc=frame.contentDocument;if(doc.body.classList.contains('previewOnly'))doc.getElementById('showPreview').click();doc.getElementById(b.dataset.miiSection)?.scrollIntoView({behavior:'smooth',block:'start'});}
   }catch(error){message.textContent=error.message;}});
-  overlay.querySelector('[data-mii-scenario]').addEventListener('change',e=>{try{session.flush();const result=nvsMiiProject(source,e.target.value);session.scenario=result.scenario;frame.contentWindow.MII_TEST.setProject(result.data);last=frame.contentWindow.MII_TEST.getProject();const n=nvsEnsure(source);n.mii={...n.mii,project:nvsClone(last),scenario:session.scenario,baseline:nvsMiiProjection(source,session.scenario)};if(!readonly)markDirty();}catch(error){e.target.value=session.scenario;message.textContent=error.message;}});
+  overlay.querySelector('[data-mii-scenario]').addEventListener('change',e=>{try{nvsMiiAssertSettled(session);session.flush();const result=nvsMiiProject(source,e.target.value),api=frame.contentWindow.MII_TEST;if(result.scenario!==session.scenario){session.invalidateMiiImport?.();api.nvsResetTopologyHistory();}api.setProject(result.data,{preservePhotoOwner:true});session.scenario=result.scenario;last=api.getProject();const n=nvsEnsure(source);n.mii={...n.mii,project:nvsClone(last),scenario:session.scenario,baseline:nvsMiiProjection(source,session.scenario)};if(!readonly)markDirty();}catch(error){e.target.value=session.scenario;message.textContent=error.message;}refreshReadiness();});
   try{
-    await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('MIIの起動が完了しませんでした')),30000);frame.onload=()=>{clearTimeout(timeout);resolve();};frame.srcdoc=nvsMiiSource();});
+    const loaded=await new Promise((resolve,reject)=>{finishLoad=resolve;loadTimer=setTimeout(()=>reject(new Error('MIIの起動が完了しませんでした')),30000);frame.onload=()=>{clearTimeout(loadTimer);resolve(true);};frame.srcdoc=nvsMiiSource();});
+    if(!loaded||session.closed||(!readonly&&project!==source)){session.dispose();return null;}
     const win=frame.contentWindow,doc=frame.contentDocument,api=win.MII_TEST;if(!api)throw new Error('MIIを起動できません');
-    const started=Date.now();while(!api.v2003PdfPptButtonServiceNameFix?.().hooked.ppt){if(Date.now()-started>2500)throw new Error('MIIの出力ボタンを準備できません');await new Promise(r=>setTimeout(r,20));}
-    api.setProject(data);last=api.getProject();
-    const n=nvsEnsure(source);n.mii={...n.mii,schemaVersion:1,project:nvsClone(last),scenario,excludedEquipment:n.mii?.excludedEquipment||[]};n.mii.baseline=nvsMiiProjection(source,scenario);
+    const started=Date.now();while(!api.v2003PdfPptButtonServiceNameFix?.().hooked.ppt){if(session.closed)return null;if(Date.now()-started>2500)throw new Error('MIIの出力ボタンを準備できません');await new Promise(r=>setTimeout(r,20));}
+    if(session.closed||(!readonly&&project!==source)){session.dispose();return null;}
+    win.__nvsMiiStatus=id=>{const row=[...(source.nvs?.diagnostics||[]),...(source.nvs?.areas||[])].find(row=>row.id===id);return ['ok','followup','na'].includes(row?.status)?row.status:'todo';};
+    win.__nvsMiiEquipmentQuantity=id=>id?nvsMiiEquipment(source).find(row=>row.reportKey===id)?.quantity??null:undefined;
+    win.__nvsMiiTopologyQuantity=node=>{const binding=nvsMiiTopologyBinding(source,session.scenario,node);if(!binding)return undefined;const info=nvsNodeInfo({...node,assetKeys:binding.assetKeys},source);return info.linked.length?info.qty:undefined;};
+    win.__nvsMiiAssertTopologyQuantity=()=>nvsMiiAssertTopologyQuantities(source,session.scenario);
+    api.setProject(nvsMiiProject(source,session.scenario).data);last=api.getProject();outputStamp=nvsMiiOutputStamp(source);
+    const n=nvsEnsure(source);n.mii={...n.mii,schemaVersion:1,project:nvsClone(last),scenario:session.scenario,excludedEquipment:n.mii?.excludedEquipment||[]};n.mii.baseline=nvsMiiProjection(source,session.scenario);
     // 原版の操作を保持し、全案件をまとめて保存する操作を追加する。
     doc.querySelector('.top h1').textContent='VAS MITSU · 診断・提案書（MII形式）';
+    if(embedded){const style=doc.createElement('style');style.textContent='.top{gap:6px;padding:8px 12px}.top h1{display:none}.top button,.top label{font-size:12px;padding:7px 9px}';doc.head.appendChild(style);}
     doc.getElementById('exportJson').textContent='MII互換JSON出力';
     doc.getElementById('importJson').parentElement.firstChild.textContent='MII互換JSON読込';
+    const sampleButton=doc.getElementById('loadSample'),loadSample=sampleButton.onclick;let replacingSample=false;
+    const assertSampleReady=()=>{nvsMiiAssertSettled(session);if(win.__nvsMiiPhotoLoads)throw new Error('写真の読込が終わってからサンプルを選択してください。');};
+    sampleButton.title='現在の入力を置換する前に確認します';
+    sampleButton.onclick=async event=>{
+      if(replacingSample||session.closed)return;replacingSample=true;sampleButton.disabled=true;
+      try{
+        assertSampleReady();session.flush();
+        const warning=readonly?'この保存版の作業コピーをサンプルに置き換えます。保存した原本と現在の案件は変更しません。':'この案件の顧客・調査記録・構成をサンプルに置き換えます。図面と既存の費用機器は残ります。置換前の状態を案件内に「サンプル読込前」として残します。';
+        if(!await confirmModal('サンプルに置き換えますか？',warning,{okLabel:'サンプルに置換'}))return;
+        if(session.closed||nvsMiiSession!==session||(!readonly&&project!==source))throw new Error('案件が切り替わったためサンプルの置換を中止しました。');
+        assertSampleReady();session.flush();
+        if(!readonly)nvsSnapshot('サンプル読込前');
+        const before=api.getProject();
+        try{session.invalidateMiiImport?.();api.nvsResetTopologyHistory();api.nvsInvalidatePhotos();loadSample.call(sampleButton,event);session.flush();}catch(error){api.setProject(before);throw error;}
+      }catch(error){message.textContent='サンプルの置換を中止しました: '+error.message;}
+      finally{replacingSample=false;sampleButton.disabled=false;}
+    };
+    // 原版のPPT/PDFボタンは命名同期でsetProjectするため、その前に写真待ちを保護する。
+    doc.addEventListener('click',event=>{if(!event.target.closest?.('#exportJson,#exportPptx,#printPdf'))return;try{nvsMiiAssertPhotosSettled(session);}catch(error){event.preventDefault();event.stopImmediatePropagation();win.alert(error.message);}},true);
     for(const event of ['input','change','click','pointerup','keyup','drop','paste'])doc.addEventListener(event,schedule,true);
-    doc.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();e.stopPropagation();if(!readonly){session.flush();void nvsSave();}}},true);
+    doc.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();e.stopPropagation();if(!readonly)void nvsSave();}},true);
     // 原版の非同期写真処理・構成図編集の完了も検出する。
-    poll=setInterval(safeFlush,900);session.ready=true;if(!readonly)markDirty();
+    if(!session.suspended)poll=setInterval(safeFlush,900);session.ready=true;session.cleanupImport=nvsMiiInstallImport(session,{readonly});nvsMiiInstallDownload(session,options.sourceVersion);session.cleanupPrint=nvsMiiInstallPrint(session,options.sourceVersion);scenarioSelect.disabled=false;frame.style.visibility='';refreshReadiness();if(!readonly)markDirty();
     message.textContent=readonly?'保存版の作業用コピー（現在の案件は変更しません）':'案件の情報と連動 · 写真・編集内容も案件ZIPに保存されます';
     if(options.preview)doc.getElementById('showPreview').click();
     if(options.pptx)doc.getElementById('exportPptx').click();
     return session;
-  }catch(error){failed=true;session.close();throw error;}
+  }catch(error){failed=true;session.dispose();throw error;}
 }
 
 /* NVS_MII_END */
