@@ -334,6 +334,10 @@ svg{ display:block; width:100%; height:100%; }
 .helpDialog>h3,.helpDialog>.modalBtns{flex-shrink:0;}
 .helpDialog .helpBody{min-height:0;overflow:auto;overflow-wrap:anywhere;}
 .modalBox p{ margin:0 0 16px; font-size:.8rem; color:var(--text-mut); line-height:1.5; }
+.modalBox.multilineDialog{width:600px;max-height:calc(100vh - 40px);max-height:calc(100dvh - 40px);display:flex;flex-direction:column;}
+.multilineDialog>h3,.multilineDialog>.modalBtns{flex-shrink:0;}
+.multilineDialog #confirmMessage{white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;min-height:0;}
+.multilineDialog .modalBtns{flex-wrap:wrap;}
 .modalBox input[type=text], .modalBox input[type=number]{ width:100%; height:44px; padding:0 12px; background:var(--ink-700); border:1px solid var(--ink-600); border-radius:8px; color:var(--text); font-size:.9rem; margin-bottom:12px; }
 .modalQuick{ display:flex; gap:8px; margin-bottom:14px; }
 .modalQuick button{ flex:1; height:38px; border-radius:8px; background:var(--ink-700); border:1px solid var(--ink-600); color:var(--text); font-size:.78rem; }
@@ -638,6 +642,8 @@ svg{ display:block; width:100%; height:100%; }
 /* ===== 印刷専用 ===== */
 #printRoot{ display:none; }
 
+.qsConditions .qsConditionMeta{font-size:10pt;line-height:1.5;margin:10pt 0;overflow-wrap:anywhere;}
+.qsConditions .qsConditionLines{font-family:"Meiryo",sans-serif;font-size:10pt;line-height:14pt;white-space:pre-wrap;overflow-wrap:anywhere;}
 /* ===== 顧客運用ハンドブック ===== */
 .hbOverlay{ position:fixed; inset:0; z-index:1100; display:flex; align-items:stretch; justify-content:center; background:rgba(6,10,20,.86); padding:18px; }
 .hbDialog{ width:min(1180px,100%); min-width:0; display:flex; flex-direction:column; overflow:hidden; background:var(--ink-800); border:1px solid var(--ink-600); border-radius:16px; box-shadow:0 24px 80px rgba(0,0,0,.55); }
@@ -2102,7 +2108,7 @@ function closeModal(){
   cameraModalCancel=null;pdfModalCancel=null;
   if(cancel)cancel();
   if(cancelPdf)cancelPdf();
-  els.modalOverlay.classList.remove('show');els.modalBox.classList.remove('cameraDialog');els.modalBox.innerHTML='';
+  els.modalOverlay.classList.remove('show');els.modalBox.classList.remove('cameraDialog','multilineDialog');els.modalBox.innerHTML='';
   els.modalBox.removeAttribute('role');els.modalBox.removeAttribute('aria-modal');els.modalBox.removeAttribute('aria-labelledby');els.modalBox.removeAttribute('aria-describedby');
   if(cancelSimple)cancelSimple();
 }
@@ -2131,6 +2137,7 @@ function confirmModal(title, message, opts){
       </div>`;
     els.modalBox.setAttribute('role','dialog');els.modalBox.setAttribute('aria-modal','true');
     els.modalBox.setAttribute('aria-labelledby','confirmTitle');els.modalBox.setAttribute('aria-describedby','confirmMessage');
+    els.modalBox.classList.toggle('multilineDialog',!!opts.multiline);
     els.modalOverlay.classList.add('show');
     els.modalBox.querySelector('#mCancel').onclick = ()=>finish(false);
     els.modalBox.querySelector('#mOk').onclick = ()=>finish(true);
@@ -3721,10 +3728,9 @@ function trayFloorHtml(){
     </div>`).join('');
   const scaleSet = floor.scale.mPerPx!=null;
   const useOnly = project.priceMode==='useOnly';
-  // 全フロアの機器本体費の合計(ユースのみ選択時に「いくら除外しているか」を示す)
-  const bodySum = project.floors.reduce((s,f)=>s+f.devices.reduce((t,d)=>{
-    const mm = project.pricing.devices[d.type]; return t+(mm?(mm.price||0):0);
-  },0),0);
+  // 個別対象外・未配置部材・明細の丸めを含め、除外する本体費は見積明細と共通化する。
+  const bodySum = NEXT_PURE.buildDetailRows({...project,priceMode:'full'})
+    .filter(row=>row.section==='product').reduce((sum,row)=>sum+row.subtotal,0);
   return `
     <div class="traySection">
       <button class="bigBtn primary" data-action="pickImage">${ic('upload')}<span>${floor.img?'図面を差し替え':'図面を読み込む'}<br><small>PDF・画像ファイル</small></span></button>
@@ -3743,7 +3749,7 @@ function trayFloorHtml(){
       ${priceModeSegHtml()}
       <div class="scaleStatus ${useOnly?'warn':'ok'}">
         ${useOnly
-          ? `ユースのみ: 機器本体費 ¥${bodySum.toLocaleString()} を金額から除外しています(取付費・配線・設定費は計上)`
+          ? `ユースのみ: 本体費 ¥${bodySum.toLocaleString()}（税抜・割増前）を除外。取付費・配線・設定費は計上。`
           : '機器含む: 機器本体費+工事費で集計しています'}
       </div>
     </div>
@@ -3901,7 +3907,7 @@ function trayOptionsHtml(){
 
 function trayOutputHtml(){
   const m = project.meta;
-  const pages = chunkPrintRows(buildQuotePrintRows(NEXT_PURE.calcTotals(project)), QUOTE_TABLE_FIXED_ROWS).length + project.floors.length;
+  const pages = chunkPrintRows(buildQuotePrintRows(NEXT_PURE.calcTotals(project)), QUOTE_TABLE_FIXED_ROWS).length + quoteConditionPages().length + project.floors.length;
   return `
     <div class="traySection">
       <div class="trayLabel">案件・お客様情報</div>
@@ -5547,6 +5553,25 @@ function quoteDetailTableHtml(chunk, fixedCount){
 const QUOTE_ROUGH_TITLE = '大概算見積書';
 const QUOTE_ROUGH_NOTICE = '本書は予算検討用の大概算です。正式見積ではありません。';
 const QUOTE_ROUGH_DETAIL = '図面に基づく仮算定のため、現地調査・仕様確定により金額が大きく変わる場合があります。';
+// 見積の対象範囲・別途条件は、入力済みの顧客向け2項目だけを同じ改頁でPDF/PPTへ渡す。
+function quoteConditionPages(owner=project){
+  const pages=[],sections=[['対象範囲',owner.nvs?.order?.scope],['対象外・別途条件',owner.nvs?.order?.exclusions]];let pending=[];
+  const flush=()=>{if(pending.length){pages.push({lines:pending});pending=[];}};
+  for(const [label,value] of sections){if(!String(value||'').trim())continue;const lines=nvsReportWrapText(String(value));let part=0;
+    if(pending.length+3>40)flush();if(pending.length)pending.push('');
+    while(lines.length){const take=Math.min(lines.length,39-pending.length);pending.push(label+(part?'（続き）':''),...lines.splice(0,take));part++;if(lines.length)flush();}
+  }
+  flush();return pages;
+}
+function buildQuoteConditionsHtml(owner=project){return quoteConditionPages(owner).map((page,i)=>`<div class="printPage qsPage qsConditions"><div class="qsContTitle">見積条件${i?'（続き）':''}</div><div class="qsLead">${QUOTE_ROUGH_NOTICE}</div><div class="qsConditionMeta">見積名: ${escapeHtml(owner.meta?.title||'無題の案件')}<br>見積No: ${escapeHtml(owner.meta?.quoteNo||'')}</div><div class="qsConditionLines">${page.lines.map(escapeHtml).join('<br>')}</div></div>`).join('');}
+function quoteConditionPptxShapes(page,index,pageNo,pageTotal){
+  let id=2;const S=[],w=QP_W-QP_MG*2;
+  S.push(quotePptxTextBox(id++,QP_MG,32,w,24,{text:'見積条件'+(index?'（続き）':''),size:1500,bold:true}));
+  S.push(quotePptxTextBox(id++,QP_MG,62,w,25,{text:QUOTE_ROUGH_NOTICE,size:900}));
+  S.push(quotePptxTextBox(id++,QP_MG,90,w,45,{text:'見積名: '+(project.meta.title||'無題の案件')+'\n見積No: '+(project.meta.quoteNo||''),size:900}));
+  page.lines.forEach((text,i)=>S.push(pptxTextBox(id++,QP_MG,150+i*14,w,14,{text:text||' ',size:1000})));
+  S.push(pptxTextBox(id++,0,QP_H-34,QP_W,12,{text:pageNo+' / '+pageTotal,size:800,align:'c',color:'#666666'}));return S.join('');
+}
 function quoteRemarksLines(){
   const lines = ['図面・機器構成と算定条件をご確認ください。','正式な金額・納入条件は、現地調査・仕様確定後に別途お見積りします。'];
   if(project.priceMode==='useOnly') lines.push('ユース（機器貸与）前提の金額です。機器本体費は含みません。');
@@ -5717,7 +5742,7 @@ function validateQuotePrintLayout(html){
     const limit=(297-14)*96/25.4;
     for(const page of proof.querySelectorAll('.qsPage')){
       const pageRect=page.getBoundingClientRect();
-      const elements=[...page.querySelectorAll('.qsTopRow,.qsAddressee,.qsLead,.qsCondRow,.qsNameRow,.qsDetailTable,.qsFooterRow,.qsContTitle')];
+      const elements=[...page.querySelectorAll('.qsTopRow,.qsAddressee,.qsLead,.qsCondRow,.qsNameRow,.qsDetailTable,.qsFooterRow,.qsContTitle,.qsConditionMeta,.qsConditionLines')];
       const style=getComputedStyle(page),left=pageRect.left+parseFloat(style.paddingLeft),right=pageRect.right-parseFloat(style.paddingRight);
       const fields=[...page.querySelectorAll('.qsCompanyMark,.qsMetaLine,.qsVal,.qsAddressee,.qsCondRight,.qsCondRight>div,.qsNameLeft,.qsAmountInline,.qsContTitle,.qsDetailTable th,.qsDetailTable td')];
       if(elements.some(el=>el.getBoundingClientRect().bottom-pageRect.top>limit+1)||
@@ -5744,6 +5769,7 @@ async function printQuote(){
     const isLastChunk = i===chunks.length-1;
     html += i===0 ? buildQuoteCoverPageHtml(totals, chunk, isLastChunk) : buildQuoteContinuationPageHtml(chunk, isLastChunk);
   });
+  html += buildQuoteConditionsHtml();
   try{validateQuotePrintLayout(html);}catch(error){toast(error.message,'warn');return;}
   html += buildFloorPagesHtml();
   els.printRoot.innerHTML = html;
@@ -7211,16 +7237,17 @@ function buildQuotePptxBytes(){
   const chunks = chunkPrintRows(buildQuotePrintRows(totals), QUOTE_TABLE_FIXED_ROWS);
   const media = [];
   const defs = [];
-  const pageTotal = chunks.length + project.floors.length;
+  const conditions=quoteConditionPages(),pageTotal = chunks.length + conditions.length + project.floors.length;
   chunks.forEach((chunk,i)=>{
     defs.push({ shapesXml: quotePptxPageShapes(totals, chunk, i===0, i===chunks.length-1, i+1, pageTotal), rels:[] });
   });
+  conditions.forEach((page,i)=>defs.push({shapesXml:quoteConditionPptxShapes(page,i,chunks.length+i+1,pageTotal),rels:[]}));
   project.floors.forEach((floor,fi)=>{
     const img = renderFloorImage(floor, 1600, 1200); // 見積書PDFと同じく実写画像の枠は入れない
     const idx = media.length+1;
     media.push({ name:`image${idx}.png`, data:dataUrlToBytes(img.dataUrl) });
     defs.push({
-      shapesXml: quotePptxFloorShapes(floor, { rid:'rId2', w:img.w, h:img.h }, chunks.length+fi+1, pageTotal),
+      shapesXml: quotePptxFloorShapes(floor, { rid:'rId2', w:img.w, h:img.h }, chunks.length+conditions.length+fi+1, pageTotal),
       rels:[{ id:'rId2', type:PPT_RT.image, target:`../media/image${idx}.png` }]
     });
   });
@@ -8384,12 +8411,35 @@ function nvsUnpriced(p=project){return nvsEnsure(p).assets.filter(a=>a.status!==
 function nvsMappedQuantityIssue(a){return a.mappedTo&&(a.quantity??1)!==1?(a.name||'機器')+'の候補記録は'+a.quantity+'台、対応先は1台です。対応を解除して数量を確認してください。':'';}
 function nvsIssues(p=project){const n=nvsEnsure(p),all=nvsAssets(p),keys=new Set(all.map(a=>a.key)),issues=[];
   if(nvsUnpriced(p).length)issues.push(`単価未設定の機器・部材 ${nvsUnpriced(p).length}件（大概算に含まれていません）`);
-  for(const [key,g] of Object.entries(n.topology)){if(!NVS_SCENARIOS[key])continue;const assigned=new Set();for(const node of g.nodes){for(const id of node.assetKeys||[]){if(!keys.has(id))issues.push(NVS_SCENARIOS[key]+'構成に参照先がない機器があります');if(assigned.has(id))issues.push(NVS_SCENARIOS[key]+'構成で同じ機器が複数ブロックに含まれています');assigned.add(id);}if(!(node.assetKeys||[]).length)issues.push(NVS_SCENARIOS[key]+'構成: '+nvsNodeInfo(node,p).name+'は台帳との対応未確認');}}
+  for(const [key,g] of Object.entries(n.topology)){if(!NVS_SCENARIOS[key])continue;const assigned=new Set();for(const [i,node] of g.nodes.entries()){
+    const missing=(node.assetKeys||[]).filter(id=>!keys.has(id)).length;
+    if(missing)issues.push(NVS_SCENARIOS[key]+'構成 / ブロック'+(i+1)+'「'+nvsNodeInfo(node,p).name+'」: 台帳にない関連機器'+missing+'件。「設計」で関連機器を確認してください。');
+    for(const id of node.assetKeys||[]){if(assigned.has(id))issues.push(NVS_SCENARIOS[key]+'構成で同じ機器が複数ブロックに含まれています');assigned.add(id);}if(!(node.assetKeys||[]).length)issues.push(NVS_SCENARIOS[key]+'構成: '+nvsNodeInfo(node,p).name+'は台帳との対応未確認');}}
   for(const a of n.assets)if(a.mappedTo&&!nvsMappingExists(p,a))issues.push((a.name||'機器')+'の対応先がありません。対応を解除または再設定してください');
   for(const a of n.assets){const issue=nvsMappedQuantityIssue(a);if(issue)issues.push(issue);}
   for(const a of n.areas)if(a.floorId&&!p.floors.some(f=>f.id===a.floorId))issues.push((a.name||'エリア')+'のフロア参照を確認してください');
-  for(const item of [...n.areas,...n.diagnostics,...n.records]){for(const id of item.photoIds||[])if(!p.photos[id])issues.push('写真参照が見つかりません: '+id);for(const key of item.assetKeys||[])if(!keys.has(key))issues.push('機器参照が見つかりません: '+key);}
+  // 内部IDを警告の主表示にせず、編集画面・行・保存済みの名称から対象を探せるようにする。
+  // 消えた参照を削除・別機器へ付け替えることはしない。
+  for(const [kind,items] of [['areas',n.areas],['diagnostics',n.diagnostics],['records',n.records]])for(const [i,item] of items.entries()){
+    const label=kind==='areas'?nvsAreaDisplayName(item,p):kind==='diagnostics'?[item.category,item.target].filter(Boolean).join(' / '):[item.title,item.areaId?nvsAreaDisplayName(n.areas.find(a=>a.id===item.areaId),p):''].filter(Boolean).join(' / ');
+    const section=kind==='areas'?'調査管理 / エリア調査':kind==='diagnostics'?'調査管理 / 既設診断':'施工・運用 / '+(NVS_RECORD_TYPES[item.type]||'記録');
+    const row=kind==='records'?n.records.slice(0,i+1).filter(r=>r.type===item.type).length:i+1,context=section+' '+row+'「'+(label||'名称未記入')+'」';
+    const missingAssets=(item.assetKeys||[]).filter(key=>!keys.has(key)).length,missingPhotos=(item.photoIds||[]).filter(id=>!p.photos[id]).length;
+    if(missingAssets)issues.push(context+': 台帳にない関連機器'+missingAssets+'件。関連機器を確認してください。');
+    if(missingPhotos)issues.push(context+': 写真が見つかりません（'+missingPhotos+'件）。登録済み写真を確認してください。');
+  }
+  for(const key of Object.keys(NVS_SCENARIOS)){const missing=nvsMissingWireLinks(p,key);if(missing.length)issues.push(NVS_SCENARIOS[key]+'構成: 施工配線が見つからない接続'+missing.length+'件。「設計」の接続一覧で確認してください。');}
   return [...new Set(issues)];
+}
+// 再生成で旧接続を保持した場合も、削除された施工配線への参照は解決済みと扱わない。
+function nvsMissingWireLinks(p,scenario){
+  const graph=nvsEnsure(p).topology[scenario],keys=new Set(p.floors.flatMap(f=>f.wires.map(w=>nvsPlotWireKey(f,w))));
+  return graph.links.flatMap((link,index)=>{
+    const refs=link.wireKey?(link.wireKeys?.includes(link.wireKey)?link.wireKeys:[link.wireKey]):[],missing=[...new Set(refs)].filter(key=>!keys.has(key));
+    if(!missing.length)return [];
+    const name=id=>{const node=graph.nodes.find(n=>n.id===id);return node?nvsNodeInfo(node,p).name:'機器未指定';};
+    return [{index,link,missing,label:name(link.from)+' → '+name(link.to)}];
+  });
 }
 function nvsValidateReferences(p){const n=nvsEnsure(p);for(const row of [...n.areas,...n.diagnostics,...n.records])for(const id of row.photoIds||[])if(!p.photos[id])throw new Error('写真の実体が見つかりません: '+id);}
 function nvsSplitAsset(index,p=project){
@@ -8496,15 +8546,35 @@ function nvsField(label,path,type='text',options){const value=nvsValue(path)??''
 function nvsButton(label,action,arg='',primary=false){return `<button type="button" class="nvsBtn ${primary?'nvsPrimary':''}" data-nvs-action="${action}" data-nvs-arg="${escapeHtml(arg)}">${escapeHtml(label)}</button>`;}
 function nvsEmpty(text){return `<p class="nvsEmpty">${escapeHtml(text)}</p>`;}
 function nvsCard(title,content,actions=''){return `<section class="nvsCard"><div class="nvsCardHead"><h3>${escapeHtml(title)}</h3><div class="nvsActions">${actions}</div></div>${content}</section>`;}
-function nvsAssetSelect(path,multiple=true){const value=nvsValue(path)||[],selected=multiple?value:[value];return `<label class="nvsField nvsWide"><span>関連機器（台帳から選択${multiple?'・複数可':''}）</span><select data-nvs-path="${escapeHtml(path)}" ${multiple?'multiple size="4"':' '}>${multiple?'':'<option value="">未指定</option>'}${nvsAssets().map(a=>`<option value="${escapeHtml(a.key)}" ${selected.includes(a.key)?'selected':''}>${escapeHtml(nvsAssetDisplayName(a)+' / '+a.location+' / '+a.quantity+'台')}</option>`).join('')}</select></label>`;}
+function nvsAssetSelect(path,multiple=true){
+  const value=nvsValue(path)??(multiple?[]:''),selected=multiple?value:[value],assets=nvsAssets(),keys=new Set(assets.map(a=>a.key)),missing=[...new Set(selected)].filter(key=>key&&!keys.has(key));
+  // 存在しない参照も選択肢に残す。未選択に見せず、利用者が関連だけを明示的に解除できる。
+  const topology=nvsEnsure().topology,nodes=Object.keys(NVS_SCENARIOS).flatMap(key=>topology[key]?.nodes||[]);
+  const missingOptions=missing.map((key,i)=>{const name=nodes.find(node=>node.name&&(node.assetKeys||[]).includes(key))?.name;return `<option value="${escapeHtml(key)}" selected data-nvs-missing-ref>参照先なし: ${escapeHtml(name||'関連機器'+(i+1))}</option>`;}).join('');
+  return `<label class="nvsField nvsWide"><span>関連機器（台帳から選択${multiple?'・複数可':''}）</span><select data-nvs-path="${escapeHtml(path)}" ${multiple?'multiple size="4"':' '}>${multiple?'':'<option value="">未指定</option>'}${missingOptions}${assets.map(a=>`<option value="${escapeHtml(a.key)}" ${selected.includes(a.key)?'selected':''}>${escapeHtml(nvsAssetDisplayName(a)+' / '+a.location+' / '+a.quantity+'台')}</option>`).join('')}</select>${missing.length?'<span class="nvsHint">「参照先なし」の選択を解除すると、この記録との関連だけを外せます。PCではCtrl / ⌘＋クリックで個別に解除できます。</span>':''}</label>`;
+}
 function nvsPhotos(path){const row=nvsValue(path),ids=row.photoIds||[];return `<div class="nvsPhotos">${ids.map((id,i)=>{const p=project.photos[id];return `<div class="nvsPhoto">${p?`<img src="${escapeHtml(p.src)}" alt="${escapeHtml(p.name)}"><label>写真名<input data-nvs-photo-name="${escapeHtml(id)}" value="${escapeHtml(p.name)}"></label><label>用途<select data-nvs-photo-role="${escapeHtml(path)}" data-photo-id="${escapeHtml(id)}">${['現地写真','既設の状況','設置箇所','画角イメージ','施工前','施工後','試験・確認'].map(role=>`<option ${(row.photoRoles?.[id]||'現地写真')===role?'selected':''}>${role}</option>`).join('')}</select></label>`:'写真がありません'}${nvsButton('外す','unlink-photo',path+'|'+i)}</div>`;}).join('')}</div><div class="nvsActions">${nvsButton('写真を追加','photo',path)}${nvsButton('登録済み写真を使う','reuse-photo',path)}</div>`;}
 function nvsCaseView(){const n=nvsEnsure(),p=n.profile,issues=nvsIssues();const tasks=n.records.filter(r=>!['ok','na'].includes(r.status));
   return `<div class="nvsSummary"><div><span>現在の工程</span><strong data-nvs-stage>${escapeHtml(p.stage)}</strong></div><div><span>調査エリア</span><strong>${n.areas.length}か所</strong></div><div><span>機器・部材</span><strong>${nvsAssets().reduce((s,a)=>s+a.quantity,0)}点</strong></div><div><span>未完了の記録</span><strong>${tasks.length}件</strong></div></div>`+
     nvsBasicCard()+nvsCard('案件概要',`<div class="nvsGrid">${nvsField('案件名','meta.title')}${nvsField('顧客名','meta.customer')}${nvsField('拠点名','nvs.profile.site')}${nvsField('住所','nvs.profile.address')}${nvsField('主担当','nvs.profile.owner')}${nvsField('工程・状態','nvs.profile.stage','select',NVS_STAGES)}${nvsField('既設設備','nvs.profile.existingStatus','select',['未確認','既設あり','一部既設','なし'])}${nvsField('希望時期','nvs.profile.timing')}${nvsField('予算感','nvs.profile.budget')}${nvsField('関係者・意思決定者','nvs.profile.stakeholders')}${nvsField('要件・ヒアリング（内部記録）','nvs.profile.requirements','textarea')}${nvsField('決定事項・未確定事項（内部記録）','nvs.profile.decisions','textarea')}</div>`)+
-    nvsCard('お客様に伝える提案方針',`<p class="nvsHint">既存の提案メモと共通です。商談提案・従来の提案書にも反映されます。</p><div class="nvsGrid">${BRIEF_FIELDS.map(([k,l])=>nvsField(l,'brief.'+k,'textarea')).join('')}</div>`)+
+    nvsCard('お客様に伝える提案方針',`<p class="nvsHint">この4項目は「資料 → 見積・提案書」から出す既存VAS提案書の「提案の要点」に反映します。MII形式の調査・提案は「入力フォーム」で記録します。</p><div class="nvsGrid">${BRIEF_FIELDS.map(([k,l])=>nvsField(l,'brief.'+k,'textarea')).join('')}</div>`)+
     nvsCard('商談・打合せ履歴',n.meetings.map((r,i)=>`<article class="nvsEntry"><div class="nvsGrid">${nvsField('日付',`nvs.meetings.${i}.date`,'date')}${nvsField('出席者',`nvs.meetings.${i}.participants`)}${nvsField('打合せ記録（内部）',`nvs.meetings.${i}.note`,'textarea')}${nvsField('次回アクション',`nvs.meetings.${i}.nextAction`,'textarea')}</div>${nvsButton('記録を削除','delete','nvs.meetings.'+i)}</article>`).join('')||nvsEmpty('商談前から、打合せの内容と次の確認事項を残せます。'),nvsButton('打合せを追加','add','meetings'))+
     nvsCard('確認が必要なこと',issues.length?`<ul>${issues.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul>`:nvsEmpty('参照や費用の不整合は検出されていません。現地の確認済みを意味するものではありません。'))+
     nvsCard('保存・引継ぎ',`<p class="nvsHint">ZIPを1つ保存し、「読込」でそのZIPを選ぶだけ。手動の展開は不要です。写真・図面・重要版を含みます。</p><div class="nvsGrid">${nvsField('引継ぎ先','nvs.profile.handoffTo')}${nvsField('引継ぎ事項・残課題','nvs.profile.handoffNote','textarea')}</div><div class="nvsActions">${nvsButton('案件パッケージを保存','save','',true)}${nvsButton('ダウンロード保存','download')}${nvsButton('JSONで保存','json')}${nvsButton('案件を読込','load')}${nvsButton('展開済みフォルダから読込','folder')}${nvsButton('別案件として複製','duplicate')}</div><p class="nvsHint">案件ID: ${escapeHtml(n.projectId)} / 保存版: <span data-nvs-saved-revision>${escapeHtml(n.revisionId||'未保存')}</span><br>端末内の自動保存は復旧用です。保管・引継ぎには案件ファイルを保存してください。</p>`)+nvsMilestoneView();
+}
+// 画面上のC/E番号ではなく既存の個体IDで保存版と比較する。同数の入替を見落とさない。
+function nvsMilestoneAssetChanges(before,after){
+  const old=new Map(nvsAssets(before).map(a=>[a.key,a])),now=new Map(nvsAssets(after).map(a=>[a.key,a]));
+  const fields=['type','annotation','model','location','ipAddress','serialNumber','quantity','bodyQty','installQty','bodyUnit','installUnit','status','x','y','rot','fovDeg','rangeM'];
+  const values=a=>JSON.stringify([a.name,a.quantity,a.location,a.floor?.name||'',...fields.map(k=>a.source[k]??null)]);
+  const added=[...now].filter(([key])=>!old.has(key)).map(([,a])=>a),removed=[...old].filter(([key])=>!now.has(key)).map(([,a])=>a),changed=[...now].filter(([key,a])=>old.has(key)&&values(old.get(key))!==values(a)).map(([,a])=>a);
+  const lines=['機器台帳の差分: 追加 '+added.length+'件 / 除外 '+removed.length+'件 / 情報変更 '+changed.length+'件'];
+  for(const [label,items,p] of [['追加',added,after],['除外',removed,before],['情報変更',changed,after]]){
+    for(const a of items.slice(0,2))lines.push(label+': '+nvsAssetDisplayName(a,p)+(a.source.serialNumber?' / シリアル '+a.source.serialNumber:''));
+    if(items.length>2)lines.push(label+': ほか'+(items.length-2)+'件');
+  }
+  lines.push('機器の名称・数量・配置・納入情報を比較しています。配線・写真・記録は保存版の資料で確認してください。');
+  return lines;
 }
 function nvsMilestoneView(){const n=nvsEnsure();return nvsCard('提出・受注・完成時の版',`<p class="nvsHint">図面・単価・記録をその時点で固定します。以後の編集で過去版は変わりません。</p>`+n.milestones.map((m,i)=>`<div class="nvsEntry"><strong>${escapeHtml(m.label)}</strong><p>${escapeHtml(m.date)} / ${escapeHtml(m.stage||'')}</p><div class="nvsActions">${nvsButton('内容・差分を確認','milestone-preview',String(i))}${nvsButton('この版をJSONで保存','milestone-save',String(i))}</div></div>`).join(''),nvsButton('現在の状態を版として残す','snapshot'));}
 function nvsSurveyView(){const n=nvsEnsure(),areas=nvsView.survey==='areas';return nvsMiiCard()+`<div class="nvsSubnav">${nvsButton('エリア調査','survey-tab','areas',areas)}${nvsButton('既設診断','survey-tab','diagnostics',!areas)}${nvsButton('VASの施工条件・機器確認','legacy-survey')}</div>`+(areas?
@@ -8523,9 +8593,9 @@ function nvsRefreshDesignReferences(el){
     if(path.endsWith('.assetKeys'))for(const option of select.options){const a=assets.get(option.value);if(a)option.textContent=nvsAssetDisplayName(a)+' / '+a.location+' / '+a.quantity+'台';}
   });
 }
-function nvsDesignView(){const n=nvsEnsure(),scenario=nvsView.scenario,g=n.topology[scenario],assets=nvsAssets();return nvsPlotCard()+nvsCard('配置図と接続構成図',`<p class="nvsHint">配置図は施工位置・距離、接続図はシステムのつながりを扱います。台帳の同じ機器を参照できます。</p><div class="nvsActions">${nvsButton('配置図を編集する','plot','',true)}${Object.entries(NVS_SCENARIOS).map(([k,v])=>nvsButton(v+'構成','scenario',k,k===scenario)).join('')}${nvsButton('配線から系統図を作る','plot-review','',true)}${nvsButton('MII形式で編集・出力','mii-design')}${nvsPlotUndo?.owner===project&&nvsPlotUndo.scenario===scenario?nvsButton('直前の生成を取り消す','plot-undo'):''}${nvsButton('別の状態から構成をコピー','copy-graph')}${nvsButton('自動整列','layout')}</div>${nvsPlotStatus(project,scenario)}<div class="nvsGraph">${nvsGraphSvg(project,scenario,true)}</div><p class="nvsHint">ブロックはドラッグで移動できます。接続は下の接続一覧から編集します。</p>`)+nvsSystemView()+
+function nvsDesignView(){const n=nvsEnsure(),scenario=nvsView.scenario,g=n.topology[scenario],assets=nvsAssets(),missingWires=new Map(nvsMissingWireLinks(project,scenario).map(x=>[x.index,x]));return nvsPlotCard()+nvsCard('配置図と接続構成図',`<p class="nvsHint">配置図は施工位置・距離、接続図はシステムのつながりを扱います。台帳の同じ機器を参照できます。</p><div class="nvsActions">${nvsButton('配置図を編集する','plot','',true)}${Object.entries(NVS_SCENARIOS).map(([k,v])=>nvsButton(v+'構成','scenario',k,k===scenario)).join('')}${nvsButton('配線から系統図を作る','plot-review','',true)}${nvsButton('MII形式で編集・出力','mii-design')}${nvsPlotUndo?.owner===project&&nvsPlotUndo.scenario===scenario?nvsButton('直前の生成を取り消す','plot-undo'):''}${nvsButton('別の状態から構成をコピー','copy-graph')}${nvsButton('自動整列','layout')}</div>${nvsPlotStatus(project,scenario)}<div class="nvsGraph">${nvsGraphSvg(project,scenario,true)}</div><p class="nvsHint">ブロックはドラッグで移動できます。接続は下の接続一覧から編集します。</p>`)+nvsSystemView()+
     nvsCard('接続ブロック',g.nodes.map((r,i)=>{const p=`nvs.topology.${scenario}.nodes.${i}`;return `<article class="nvsEntry"><div class="nvsGrid">${nvsField('表示名（空欄なら機器名）',p+'.name')}${nvsField('種類',p+'.type','select',NVS_NODE_TYPES)}${nvsField('場所',p+'.location')}${nvsField('台数（台帳未対応時）',p+'.qty','number')}${nvsField('補足',p+'.detail','textarea')}${nvsAssetSelect(p+'.assetKeys')}</div><p class="nvsHint" data-nvs-node-summary="${i}">${escapeHtml(nvsNodeSummary(r))}</p>${nvsButton('ブロックを削除','delete-node',String(i))}</article>`;}).join('')||nvsEmpty('ルーター・スイッチ・録画装置・カメラなどを追加してください。'),nvsButton('ブロックを追加','add-node'))+
-    nvsCard('接続一覧',g.links.map((r,i)=>{const p=`nvs.topology.${scenario}.links.${i}`,options=Object.fromEntries(g.nodes.map(x=>[x.id,nvsNodeInfo(x).name]));return `<article class="nvsEntry"><div class="nvsGrid">${nvsField('接続元',p+'.from','select',options)}${nvsField('接続先',p+'.to','select',options)}${nvsField('接続種類',p+'.kind','select',NVS_LINK_TYPES)}${nvsField('方向',p+'.direction','select',{both:'双方向',forward:'接続元 → 接続先',none:'方向なし'})}${nvsField('接続の説明',p+'.label')}${nvsField('施工配線との対応',p+'.wireKey','select',{'':'未指定',...Object.fromEntries(project.floors.flatMap(f=>f.wires.map((w,j)=>[f.id+':'+w.id,f.name+' / '+(j+1)+' / '+(project.pricing.wires[w.type]?.label||w.type)])))})}</div>${nvsButton('接続を削除','delete',p)}</article>`;}).join('')||nvsEmpty('ブロックを2つ以上追加してから接続します。'),nvsButton('接続を追加','add-link'))+
+    nvsCard('接続一覧',g.links.map((r,i)=>{const p=`nvs.topology.${scenario}.links.${i}`,options=Object.fromEntries(g.nodes.map(x=>[x.id,nvsNodeInfo(x).name]));return `<article class="nvsEntry">${missingWires.has(i)?`<p class="nvsNotice">接続${i+1}: 元の施工配線${missingWires.get(i).missing.length}件が見つかりません。対応を確認してください。</p>`:''}<div class="nvsGrid">${nvsField('接続元',p+'.from','select',options)}${nvsField('接続先',p+'.to','select',options)}${nvsField('接続種類',p+'.kind','select',NVS_LINK_TYPES)}${nvsField('方向',p+'.direction','select',{both:'双方向',forward:'接続元 → 接続先',none:'方向なし'})}${nvsField('接続の説明',p+'.label')}${nvsField('施工配線との対応',p+'.wireKey','select',{'':'未指定',...(r.wireKey&&!project.floors.some(f=>f.wires.some(w=>nvsPlotWireKey(f,w)===r.wireKey))?{[r.wireKey]:'参照先なし（削除済み配線）'}:{}),...Object.fromEntries(project.floors.flatMap(f=>f.wires.map((w,j)=>[f.id+':'+w.id,f.name+' / '+(j+1)+' / '+(project.pricing.wires[w.type]?.label||w.type)])))})}</div>${nvsButton('接続を削除','delete',p)}</article>`;}).join('')||nvsEmpty('ブロックを2つ以上追加してから接続します。'),nvsButton('接続を追加','add-link'))+
     nvsCard('共通機器台帳',assets.filter(a=>a.floor).map(a=>`<div class="nvsAssetRow"><div><strong>${escapeHtml(nvsAssetDisplayName(a))}</strong><p>${escapeHtml(a.location)} / ${escapeHtml(a.source.serialNumber||'シリアル未登録')}</p></div>${nvsButton('配置・納入情報を開く','jump-device',a.key)}</div>`).join('')||nvsEmpty('配置図の機器はここに自動表示されます。'))+nvsExtraAssetsView();
 }
 function nvsMappedAssetView(r,index){
@@ -8622,7 +8692,7 @@ async function nvsAction(action,arg){if(nvsMiiSession?.host&&!action.startsWith(
   if(action==='reuse-photo'){const row=nvsValue(arg),list=Object.entries(project.photos);if(!list.length)throw new Error('登録済み写真がありません');const choice=await promptModal('写真番号を入力\n'+list.map(([id,p],i)=>`${i+1}: ${p.name||id}`).join('\n'),'1');if(choice==null)return;const selected=list[Number(choice)-1];if(!selected)throw new Error('一覧の番号を指定してください');if(project!==owner)return;row.photoIds=row.photoIds||[];if(!row.photoIds.includes(selected[0]))row.photoIds.push(selected[0]);}
   if(action==='snapshot'){const name=await promptModal('この版の名前',n.profile.stage+' '+nvsToday());if(name==null||project!==owner)return;nvsSnapshot(name);toast('この時点の案件を版として残しました','ok');}
   if(action==='milestone-save'){const m=n.milestones[Number(arg)];if(m)downloadBlob('NVS_'+m.label.replace(/[\\/:*?"<>|]/g,'_')+'.json',new Blob([JSON.stringify(m.snapshot,null,2)],{type:'application/json'}));return;}
-  if(action==='milestone-preview'){const m=n.milestones[Number(arg)];if(!m)return;const old=buildProjectFromData(m.snapshot);const prior=NEXT_PURE.calcTotals(old),current=NEXT_PURE.calcTotals(project);const text=`${m.label}\n記録日時: ${m.date}\n記録時: ${nvsAssets(old).reduce((s,a)=>s+a.quantity,0)}点 / ¥${prior.total.toLocaleString()}\n現在: ${nvsAssets().reduce((s,a)=>s+a.quantity,0)}点 / ¥${current.total.toLocaleString()}\n記録時の資料を開きます。現在の案件は変更しません。`;if(!await confirmModal('保存版を確認',text,{okLabel:'保存版の資料を開く'}))return;if(project!==owner)return;const kind=({'商談前':'pre','商談':'proposal','調査':'survey','提案・見積':'proposal','受注・施工':'work','完成':'completion','アフター':'aftercare'})[m.stage]||'pre';await nvsReportPreview(kind,old,{sourceVersion:{label:m.label,date:m.date}});return;}
+  if(action==='milestone-preview'){const m=n.milestones[Number(arg)];if(!m)return;const old=buildProjectFromData(m.snapshot);const prior=NEXT_PURE.calcTotals(old),current=NEXT_PURE.calcTotals(project);const text=`${m.label}\n記録日時: ${m.date}\n記録時: ${nvsAssets(old).reduce((s,a)=>s+a.quantity,0)}点 / ¥${prior.total.toLocaleString()}\n現在: ${nvsAssets().reduce((s,a)=>s+a.quantity,0)}点 / ¥${current.total.toLocaleString()}\n\n${nvsMilestoneAssetChanges(old,project).join('\n')}\n\n記録時の資料を開きます。現在の案件は変更しません。`;if(!await confirmModal('保存版を確認',text,{okLabel:'保存版の資料を開く',multiline:true}))return;if(project!==owner)return;const kind=({'商談前':'pre','商談':'proposal','調査':'survey','提案・見積':'proposal','受注・施工':'work','完成':'completion','アフター':'aftercare'})[m.stage]||'pre';await nvsReportPreview(kind,old,{sourceVersion:{label:m.label,date:m.date}});return;}
   if(action==='duplicate'){if(!await confirmModal('別案件として複製','現在の案件を先にファイル保存してください。新しい案件IDで複製し、提出・受注・完成の保存版は元案件に残します。',{okLabel:'複製する'}))return;if(project!==owner)return;nvsMiiFlush();const data=nvsClone(serializeProject(project));data.meta.title=(data.meta.title||'無題')+'（複製）';Object.assign(data.nvs,{projectId:nvsId(),revisionId:null,parentRevisionId:null,savedAt:null,milestones:[],derivedFrom:n.projectId});data.nvs.order.baselineId='';nvsClose();applyLoadedProject(buildProjectFromData(data),true);nvsOpen();return;}
   if(action==='unmap-asset'){const asset=n.assets[Number(arg)];if(asset)asset.mappedTo='';}
   if(action==='split-asset'){const a=n.assets[Number(arg)];if(!a)return;if(!await confirmModal('数量グループを個別の機器に分ける',`${a.quantity}台の機器へ展開します。対象数量は先頭の機器から割り当てます。展開前の版を残します。`,{okLabel:'展開する'}))return;if(project!==owner)return;nvsSnapshot('展開前: '+(a.name||'数量グループ'));nvsSplitAsset(Number(arg));}
@@ -8679,7 +8749,17 @@ function nvsReportSections(p,kind){const n=nvsEnsure(p),sections=[],customer=['p
   }
   if(kind==='survey')for(const f of p.floors){const s=mergeFloorSurvey(f.survey);add('現地の施工条件（内部）',[f.name+' / '+s.date+' / '+s.surveyor,...surveyRows(f,p.pricing).map(r=>r.label+' / '+SURVEY_STATUS[r.status]+' / '+r.note)]);}
   if(['cost','work','completion','aftercare'].includes(kind)){add('対象範囲・基準',['正式見積・受注番号: '+n.order.number,'受注日: '+n.order.date,'対象範囲: '+n.order.scope,'対象外: '+n.order.exclusions,'基準版: '+(n.milestones.find(m=>m.id===n.order.baselineId)?.label||n.order.baselineLabel||'未指定')]);}
-  if(kind==='cost'){const totals=NEXT_PURE.calcTotals(p);add('大概算の条件',['予算検討用の大概算です。正式見積ではありません。','税込: ¥'+totals.total.toLocaleString(),'税抜: ¥'+totals.pretax.toLocaleString(),NEXT_PURE.priceModeLabel(p.priceMode),...nvsIssues(p)]);add('大概算の内訳',NEXT_PURE.buildDetailRows(p).map(r=>`${r.name} / ${r.qty}${r.qtyUnit} × ¥${r.unitPrice.toLocaleString()} = ¥${r.subtotal.toLocaleString()}`));}
+  if(kind==='cost'){
+    const totals=NEXT_PURE.calcTotals(p);
+    add('大概算の条件',['予算検討用の大概算です。正式見積ではありません。','税込: ¥'+totals.total.toLocaleString(),'税抜: ¥'+totals.pretax.toLocaleString(),NEXT_PURE.priceModeLabel(p.priceMode),...nvsIssues(p)]);
+    // 通常明細の順序・単価精度を保ち、オプションとランク調整は既存見積の追加行を共用する。
+    const quote=NEXT_PURE.buildQuoteSections(totals),extras=quote.constructionItems.slice(totals.rows.filter(r=>r.section==='construction').length);
+    add('大概算の内訳',[
+      ...totals.rows.map(r=>`${r.name} / ${r.qty}${r.qtyUnit} × ¥${r.unitPrice.toLocaleString()} = ¥${r.subtotal.toLocaleString()}`),
+      ...extras.map(r=>r.priceLabel==='—'?`${r.name} / ¥${r.subtotal.toLocaleString()}`:`${r.name} / ${r.qtyLabel}${r.qtyUnit} × ${r.priceLabel} = ¥${r.subtotal.toLocaleString()}`),
+      '税抜合計 / ¥'+totals.pretax.toLocaleString(),'消費税 / ¥'+totals.tax.toLocaleString(),'税込合計 / ¥'+totals.total.toLocaleString()
+    ]);
+  }
   if(['work','completion','aftercare'].includes(kind)){add('施工・運用条件',['施工担当: '+n.order.contractor,'工程: '+n.order.schedule,'入館・作業条件: '+n.order.access,'保証・保守条件: '+n.order.warranty,'次回確認予定: '+n.order.nextCheck,...(kind==='aftercare'?[]:handoff)]);const types=kind==='work'?['work']:kind==='completion'?['work','test']:['work','test','aftercare'];for(const r of n.records.filter(r=>types.includes(r.type)))add(NVS_RECORD_TYPES[r.type],[r.title||'件名未記入',r.date+' / '+r.owner+' / '+(SURVEY_STATUS[r.status]||'未確認'),'期限・次回: '+r.due,...(r.areaId?['関連エリア: '+nvsAreaDisplayName(n.areas.find(a=>a.id===r.areaId),p)]:[]),'対象機器: '+(r.assetKeys||[]).map(k=>{const a=nvsAssets(p).find(a=>a.key===k);return a?nvsAssetDisplayName(a,p):'参照なし';}).join(' / '),'内容・条件: '+r.detail,'結果・残課題: '+r.result],r.photoIds||[],r.photoRoles||{});}
   if(['proposal','diagnosis','cost','work','completion','aftercare'].includes(kind)){const groups=nvsAssets(p).map(a=>{const d=a.source,note=d.note||(!a.floor?d.annotation:'');return [nvsAssetDisplayName(a,p)+' / '+a.quantity+'点 / '+a.location+(!a.floor&&d.model?' / 型番: '+d.model:''),...(note?['備考: '+note]:[]),...(customer?[]:['IP: '+t(d.ipAddress)+' / シリアル: '+t(d.serialNumber)]),...(!a.floor&&nvsUnpriced(p).includes(d)?['費用: 未算定']:[])];});if(groups.length){add('機器・部材一覧',groups.flat());sections.at(-1).groups=groups;}const labels={recordDays:'必要録画日数',recordingMode:'録画方式',locations:'対象エリア',poeLocation:'PoE給電',lan:'LAN',serverLocation:'録画・サーバー',cloud:'クラウド',viewerPC:'閲覧PC',monitor:'モニター',ups:'UPS',ntp:'時刻同期',notes:'補足'};const sys=Object.entries(labels).filter(([k])=>n.system[k]).map(([k,l])=>l+': '+n.system[k]);if(sys.length)add('システム・運用条件',sys);}
   if(kind==='aftercare')add('重要版・引継ぎ',['保存版: '+n.milestones.map(m=>m.label+' ('+m.date+')').join(' / '),'引継ぎ先: '+n.profile.handoffTo,'引継ぎ事項: '+n.profile.handoffNote]);
@@ -8749,8 +8829,10 @@ async function nvsPrepareReport(kind,source=project,options={}){
   const graph=nvsEnsure(p).topology[scenario];
   if(graph.nodes.length){
     const svg=nvsGraphSvg(p,scenario),src='data:image/svg+xml;base64,'+nvsBytesToBase64(new TextEncoder().encode(svg)),img=await nvsRaster(src);
-    const notice=graph.plotSync&&graph.plotSync.signature!==nvsPlotSignature(p)?['要確認: 配置・配線は系統図作成後に変更されています。接続候補を再確認してください。']:[];
+    const stale=graph.plotSync&&graph.plotSync.signature!==nvsPlotSignature(p),missing=nvsMissingWireLinks(p,scenario);
+    const notice=missing.length?['要確認: 施工配線がない接続 '+missing.length+'件。詳細は次頁。',...(stale?['配置・配線も系統図作成後に変更されています。']:[])]:stale?['要確認: 配置・配線は系統図作成後に変更されています。接続候補を再確認してください。']:[];
     pages.push({title:NVS_SCENARIOS[scenario]+'の接続構成',lines:notice.flatMap(nvsReportWrapText),image:img.src,imageInfo:img});
+    if(missing.length){const lines=['旧接続を保持しています。施工前に接続一覧の対応配線を再設定するか、不要な接続を削除してください。',...missing.map(x=>'接続'+(x.index+1)+' / '+x.label+' / 元の施工配線'+x.missing.length+'件が見つかりません。')].flatMap(nvsReportWrapText);for(let i=0;i<lines.length;i+=14)pages.push({title:'接続と施工配線の確認'+(i?'（続き）':''),lines:lines.slice(i,i+14)});}
     pages.push(...nvsGraphDetailPages(p,graph));
   }
   if(['proposal','survey','work','completion','aftercare'].includes(kind))for(const f of p.floors){if(f.imgSrc)f.img=await nvsImage(f.imgSrc);if(!f.imgSrc&&!f.devices.length&&!f.wires.length)continue;let capture;const prior=project,oldPhotos=ui.showPhotos;try{project=p;ui.showPhotos=false;capture=renderFloorImage(f,1800,1100,{handbook:true});}finally{project=prior;ui.showPhotos=oldPhotos;}pages.push({title:options.sourceVersion?'配置図（保存版の状態）':'配置図（資料作成時点）',lines:[f.name],image:capture.dataUrl,imageInfo:{src:capture.dataUrl,w:capture.w,h:capture.h}});}
@@ -8960,9 +9042,11 @@ function nvsPlotApply(){
   nvsPlotDraft=null;markDirty();nvsRender();nvsOverlay.querySelector('.nvsBody').scrollTop=0;toast(`系統図に反映しました（追加 ${result.added} / 更新 ${result.updated}）。機器・接続は引き続き編集できます。`,'ok');
 }
 function nvsPlotStatus(p=project,scenario=nvsView.scenario){
-  const g=nvsEnsure(p).topology[scenario];if(!g.plotSync)return '';
+  const g=nvsEnsure(p).topology[scenario],missing=nvsMissingWireLinks(p,scenario);
+  const warning=missing.length?'<p class="nvsNotice">施工配線が見つからない接続 '+missing.length+'件。旧接続を保持しています。接続一覧で対応配線を再設定するか、不要な接続を削除してください。</p>':'';
+  if(!g.plotSync)return warning;
   const disconnected=g.nodes.filter(n=>!g.links.some(l=>l.from===n.id||l.to===n.id));
-  return (g.plotSync.signature!==nvsPlotSignature(p)?'<p class="nvsNotice">図面の配置・配線が生成時から変わっています。「配線から系統図を作る」で変更を確認・反映してください。</p>':'')+(disconnected.length?`<p class="nvsHint">接続が未設定の機器: ${disconnected.map(n=>escapeHtml(nvsNodeInfo(n,p).name)).join(' / ')}。接続一覧から追加・修正できます。</p>`:'');
+  return warning+(g.plotSync.signature!==nvsPlotSignature(p)?'<p class="nvsNotice">図面の配置・配線が生成時から変わっています。「配線から系統図を作る」で変更を確認・反映してください。</p>':'')+(disconnected.length?`<p class="nvsHint">接続が未設定の機器: ${disconnected.map(n=>escapeHtml(nvsNodeInfo(n,p).name)).join(' / ')}。接続一覧から追加・修正できます。</p>`:'');
 }
 function nvsPlotUndoApply(){
   const u=nvsPlotUndo;if(!u||u.owner!==project||u.scenario!==nvsView.scenario)throw new Error('取り消せる系統図生成がありません');
