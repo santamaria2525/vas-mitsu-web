@@ -837,6 +837,7 @@ svg{ display:block; width:100%; height:100%; }
 .nvsBody{overflow:auto;flex:1;padding:24px 28px;overscroll-behavior:contain}.nvsFooter{padding:10px 28px;border-top:1px solid #dde4da;display:flex;justify-content:space-between;gap:10px;background:#f8faf6;color:#69816e;font-size:11px;flex-shrink:0}
 .nvsMiiHost{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}.nvsMiiHost[hidden],.nvsBody[hidden]{display:none}
 .nvsMiiHost .nvsMiiEmbedded{position:relative;inset:auto;z-index:auto;flex:1;min-height:0}
+.nvsNav{gap:8px;flex-wrap:wrap;overflow:visible}.nvsNavDetails{align-self:center;position:relative;font-size:12px;color:#617466}.nvsNavDetails>summary{cursor:pointer;padding:12px 16px;min-height:40px;box-sizing:border-box}.nvsNavDetails>div{display:flex;flex-wrap:wrap}.nvsNavDetails[open]{flex-basis:100%;border-top:1px solid #edf1eb}.nvsNavDetails[open]>summary{display:inline-block}.nvsNavDetails>div button{font-size:12px;padding:10px 16px}.nvsNavDetails summary:focus-visible{outline:2px solid #357f51;outline-offset:-2px}
 .miiFormActive>.nvsHeader{padding:8px 20px}.miiFormActive>.nvsHeader h2{font-size:17px;margin:3px 0}.miiFormActive>.nvsHeader p{margin:3px 0}.miiFormActive>.nvsNav button{padding-top:10px;padding-bottom:10px}
 .nvsMiiEmbedded>.nvsMiiHeader{display:none}
 .nvsMiiToolbar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:#f5f8f2;border-bottom:1px solid #dbe4d6;flex-shrink:0;flex-wrap:wrap;color:#345942;font-size:12px}
@@ -1398,7 +1399,8 @@ const NEXT_PURE = {
     }
     for(const key in wireAgg){
       const m = pricing.wires[key]; if(!m) continue;
-      const qtyLabel = mPerPx!=null ? (Math.round(wireAgg[key]*mPerPx*10)/10)+'m' : '(縮尺未設定)';
+      // 見積明細と同じ0.01m単位で表示し、計上済みの短い配線を0mと誤読させない。
+      const qtyLabel = mPerPx!=null ? (Math.round(wireAgg[key]*mPerPx*100)/100)+'m' : '(縮尺未設定)';
       rows.push({ color:m.color, label:m.label, qtyLabel });
     }
     const riserAgg = {};
@@ -1819,6 +1821,7 @@ function validateProjectImportData(data){
         if(category==='devices'){
           if(value.costScope!=null){record(value.costScope,item+'.costScope');for(const field of ['body','install'])if(value.costScope[field]!=null&&typeof value.costScope[field]!=='boolean')fail(item+'.costScope.'+field,'ON/OFFが不正です');}
           for(const field of ['rot','fovDeg','rangeM','photoScale'])number(value[field],item+'.'+field);
+          if(value.showApRangeLabel!=null&&typeof value.showApRangeLabel!=='boolean')fail(item+'.showApRangeLabel','半径ラベルのON/OFFが不正です');
           if(value.photoId!=null){text(value.photoId,item+'.photoId');safeKey(value.photoId,item+'.photoId');}
           if(value.photoBox!=null){record(value.photoBox,item+'.photoBox');number(value.photoBox.dx,item+'.photoBox.dx');number(value.photoBox.dy,item+'.photoBox.dy');}
         }
@@ -2139,7 +2142,7 @@ function confirmModal(title, message, opts){
       <h3 id="confirmTitle">${escapeHtml(title)}</h3>
       <p id="confirmMessage">${escapeHtml(message)}</p>
       <div class="modalBtns">
-        <button id="mCancel">キャンセル</button>
+        <button id="mCancel">${escapeHtml(opts.cancelLabel||'キャンセル')}</button>
         <button id="mOk" class="${opts.danger?'danger':'primary'}">${escapeHtml(opts.okLabel||'OK')}</button>
       </div>`;
     els.modalBox.setAttribute('role','dialog');els.modalBox.setAttribute('aria-modal','true');
@@ -2405,7 +2408,7 @@ async function handlePdfFile(file,target){
     const src=await renderPdfPageToDataUrl(pdf,pageNum,PDFJS_TARGET_LONG_EDGE);
     return await setFloorImage(src,target);
   }catch(e){
-    toast('PDFを読み込めませんでした。元の図面は保持しています。','warn');return false;
+    toast('PDFを開けませんでした。ファイルを確認して選び直してください。元の図面は保持しています。','warn');return false;
   }finally{
     busy.remove();
     if(task)try{await task.destroy();}catch(e){console.warn('PDFの後片付けに失敗しました',e);}
@@ -2839,30 +2842,37 @@ function drawDeviceHandles(ctx, dv, floor){
   }
 }
 
-function drawDevices(ctx, floor){
+// APの円は入力半径と図面縮尺から描く想定範囲。壁・実測・電波伝搬は判定しない。
+function drawApRange(ctx, dv, floor, color, bounds){
+  const radius = rangePx(dv, floor), zoom = ui.view.zoom;
+  if(!Number.isFinite(radius) || radius<=0)return;
+  ctx.save();
+  ctx.beginPath();ctx.arc(dv.x,dv.y,radius,0,Math.PI*2);
+  ctx.strokeStyle=hexToRgba(color,0.42);ctx.lineWidth=1.2/zoom;ctx.setLineDash([]);ctx.stroke();
+  if(dv.showApRangeLabel!==false){
+    const label='電波半径'+Number(dv.rangeM).toLocaleString('ja-JP',{maximumFractionDigits:3})+'m'+(floor.scale.mPerPx==null?'（想定・縮尺未設定）':'（想定）');
+    ctx.font=`${11/zoom}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';
+    const width=ctx.measureText(label).width+12/zoom, height=20/zoom;
+    const limit=bounds||(floor.img?{w:floor.img.naturalWidth||floor.img.width,h:floor.img.naturalHeight||floor.img.height}:null);
+    let x=dv.x, y=dv.y+radius+13/zoom;
+    if(limit){
+      if(y+height/2>limit.h)y=dv.y-radius-13/zoom;
+      x=clamp(x,Math.min(width/2,limit.w/2),Math.max(limit.w-width/2,limit.w/2));
+      y=clamp(y,Math.min(height/2,limit.h/2),Math.max(limit.h-height/2,limit.h/2));
+    }
+    ctx.fillStyle='rgba(255,255,255,0.88)';ctx.fillRect(x-width/2,y-height/2,width,height);
+    ctx.fillStyle=hexToRgba(color,0.88);ctx.fillText(label,x,y);
+  }
+  ctx.restore();
+}
+
+function drawDevices(ctx, floor, bounds){
   for(const dv of floor.devices){
     const master = project.pricing.devices[dv.type];
     const color = master ? master.color : '#999';
     const isFan = dv.type.startsWith('cam') || dv.type==='ap';
     if(dv.type==='ap'){
-      // APはカメラと違い「電波到達の予測範囲」なので、視野角の扇形ではなく全周円で描く。
-      // 縁を実線で囲わず、中心から外へ向かって薄くなるラジアルグラデーションで不確かさを表現する。
-      // ポリゴン自体は壁遮蔽込みの全周(fovDeg=360)で作り、壁の内側だけが光るようにする
-      const r = Math.max(1, rangePx(dv, floor));
-      const pts = computeFovPoints(Object.assign({}, dv, { fovDeg:360 }), floor);
-      if(pts.length>2){
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
-        ctx.closePath();
-        const g = ctx.createRadialGradient(dv.x, dv.y, 0, dv.x, dv.y, r);
-        g.addColorStop(0,    hexToRgba(color, 0.32));
-        g.addColorStop(0.55, hexToRgba(color, 0.18));
-        g.addColorStop(0.85, hexToRgba(color, 0.07));
-        g.addColorStop(1,    hexToRgba(color, 0));
-        ctx.fillStyle = g;
-        ctx.fill();
-      }
+      drawApRange(ctx, dv, floor, color, bounds);
     } else if(isFan){
       const pts = computeFovPoints(dv, floor);
       if(pts.length>2){
@@ -3808,8 +3818,8 @@ function trayDeviceHtml(){
   }).join('');
   return `<div class="inspectorTabs" role="group" aria-label="機器パネルの表示"><button data-action="devicePanel" data-panel="catalog" class="${ui.devicePanel!=='list'?'active':''}" aria-pressed="${ui.devicePanel!=='list'}">機器を追加</button><button data-action="devicePanel" data-panel="list" class="${ui.devicePanel==='list'?'active':''}" aria-pressed="${ui.devicePanel==='list'}">配置済み ${floor.devices.length}台</button></div>
     <div class="traySection devicePanel" ${ui.devicePanel==='list'?'hidden':''}><div class="trayLabel">機器を選んで配置</div><div class="devGrid">${cards}</div><div class="sectionNote">続けてタップすると連続配置できます。終了は図面上の × または Esc。</div></div>
-    <div class="traySection devicePanel" ${ui.devicePanel==='list'?'':'hidden'}><div class="trayLabel">配置済みの機器 / ${floor.devices.length}台</div>
-      <input class="searchField" id="deviceSearch" type="search" aria-label="配置済み機器を検索" placeholder="番号・注釈・場所・型番で探す" value="${escapeHtml(ui.deviceQuery||'')}">
+    <div class="traySection devicePanel" ${ui.devicePanel==='list'?'':'hidden'}><div class="trayLabel">このフロアの配置済み機器 / ${floor.devices.length}台</div>
+      <input class="searchField" id="deviceSearch" type="search" aria-label="配置済み機器を検索" placeholder="このフロアの番号・場所・型番で探す" value="${escapeHtml(ui.deviceQuery||'')}">
       <div class="deviceList" id="deviceList">${deviceListHtml()}</div>
       <button class="bigBtn" data-action="openProjectNotes">${ic('check')}<span>現地確認をまとめて記録</span></button><div class="sectionNote">一覧から選ぶと詳細を編集できます。機器情報はハンドブックにも反映されます。</div>
     </div>`;
@@ -3819,7 +3829,7 @@ function deviceListHtml(){
   const floor = currentFloor(), labels = deviceLabels(floor);
   const query = String(ui.deviceQuery||'').trim().toLocaleLowerCase();
   const devices = floor.devices.filter(d=>[labels[d.id],deviceAnnotation(d),project.pricing.devices[d.type]?.label,d.location,d.model,d.ipAddress,d.serialNumber].some(v=>String(v||'').toLocaleLowerCase().includes(query)));
-  if(!devices.length) return `<div class="listEmpty">${floor.devices.length?'該当する機器がありません。':'機器を配置すると、ここに一覧が表示されます。'}</div>`;
+  if(!devices.length) return `<div class="listEmpty">${floor.devices.length?'このフロアに該当する機器がありません。別フロアは上のフロア名を切り替えてください。':'機器を配置すると、ここに一覧が表示されます。'}</div>`;
   return devices.map(d=>`<button class="deviceListRow ${ui.sel?.ref===d?'active':''}" data-action="selectDevice" data-id="${escapeHtml(d.id)}"><span class="deviceNo">${escapeHtml(labels[d.id])}</span><span class="deviceListText"><strong>${escapeHtml(deviceAnnotation(d)||d.location||project.pricing.devices[d.type]?.label||d.type)}</strong><small>${escapeHtml(d.model||d.location||project.pricing.devices[d.type]?.label||'設置場所・機器情報を入力')}</small></span>${ic('edit')}</button>`).join('');
 }
 
@@ -3834,7 +3844,7 @@ function trayWireHtml(){
       <button class="wireCard ${active?'active':''}" data-action="pickWireTool" data-type="${key}">
         <span class="swatch" style="background:${safeColor(m.color)}"></span>
         <span class="nm">${escapeHtml(m.label)}<div class="sub">¥${m.pricePerM.toLocaleString()}/m</div></span>
-        <span class="badge2">${lenM!=null?lenM.toFixed(1)+'m':Math.round(lenPx)+'px'}</span>
+        <span class="badge2">${lenM!=null?(Math.round(lenM*100)/100)+'m':Math.round(lenPx)+'px'}</span>
       </button>`;
   }).join('');
   const riserCards = Object.entries(project.pricing.risers).map(([key,m])=>{
@@ -3874,7 +3884,7 @@ function trayWireHtml(){
       <div class="trayLabel">壁(遮蔽)</div>
       <button class="wireCard ${wallActive?'active':''}" data-action="pickWallTool">
         <span class="wallmark"></span>
-        <span class="nm">壁を作図<div class="sub">カメラ視野・電波を遮蔽</div></span>
+        <span class="nm">壁を作図<div class="sub">カメラの視野を遮蔽</div></span>
         <span class="badge2">${Math.round(wallLen)}px</span>
       </button>
     </div>`;
@@ -4053,7 +4063,7 @@ function initTrayEvents(){
     else if(act==='pickImage') pickImage();
     else if(act==='captureImage') captureImage();
     else if(act==='sampleImage') useSampleImage();
-    else if(act==='switchFloor'){ ui.floorIdx = parseInt(b.dataset.idx,10); ui.sel=null; refreshAll(); fitToScreen(); }
+    else if(act==='switchFloor'){ ui.floorIdx = parseInt(b.dataset.idx,10); resetFloorInteraction(); refreshAll(); fitToScreen(); }
     else if(act==='renameFloor') renameFloor(parseInt(b.dataset.idx,10));
     else if(act==='deleteFloor') deleteFloor(parseInt(b.dataset.idx,10));
     else if(act==='addFloor') addFloor();
@@ -4280,9 +4290,17 @@ function onFileChosen(){
 async function importFloorFile(file,target){
   if(!file)return false;
   target=target||beginFloorImageImport();
+  if(!isCurrentFloorImageImport(target))return false;
+  if(file.size===0){toast('ファイルが空です。PDFまたは画像を選び直してください。元の図面は保持しています。','warn');return false;}
   if(file.type==='application/pdf'||/\.pdf$/i.test(file.name))return handlePdfFile(file,target);
+  const imageType=/^image\//i.test(file.type||''),imageName=/\.(?:png|jpe?g|webp|gif|bmp|tiff?|svg|avif|heic|heif)$/i.test(file.name||'');
+  const otherType=/^(?:text|video|audio)\//i.test(file.type||'')||/^application\/(?:json|zip|msword|vnd\.)/i.test(file.type||'');
+  const otherName=/\.(?:txt|csv|docx?|pptx?|xlsx?|json|zip)$/i.test(file.name||'');
+  if(!imageType&&!imageName&&(otherType||otherName)){
+    toast('この形式は図面に使えません。PDFまたはJPEG・PNGなどの画像を選び直してください。元の図面は保持しています。','warn');return false;
+  }
   try{return await setFloorImage(await readLocalFile(file,false),target);}
-  catch(e){toast('図面を読み込めませんでした。元の図面は保持しています。','warn');return false;}
+  catch(e){toast('画像を開けませんでした。JPEG・PNGなどで保存し直して選び直してください。元の図面は保持しています。','warn');return false;}
 }
 async function captureImage(){
   const target=beginFloorImageImport();
@@ -4305,7 +4323,7 @@ async function setFloorImage(dataUrl,target){
     refreshAll();fitToScreen();
     if(hadScale)toast('図面を差し替えました。配線長の計算には縮尺を再設定してください。','warn');
     return true;
-  }catch(e){toast('図面を読み込めませんでした。元の図面は保持しています。','warn');return false;}
+  }catch(e){toast('画像を開けませんでした。JPEG・PNGなどで保存し直して選び直してください。元の図面は保持しています。','warn');return false;}
 }
 
 // フロアを移ると、未確定の配線頂点・縮尺基準点・ドラッグ先は引き継がない。
@@ -4446,10 +4464,10 @@ function inspectorDeviceHtml(dv, floor){
       <button class="iconBtn inspectorClose" data-action="closeInspector" aria-label="機器の詳細を閉じる">${ic('close')}</button>
     </div>
     <div class="inspRow deviceAnnotationField"><label class="k" for="device-annotation">図面の注釈</label><input id="device-annotation" type="text" data-device-field="annotation" maxlength="80" value="${escapeHtml(deviceAnnotation(dv))}" placeholder="例：Cam01 / ラック内HUB" autocomplete="off"><div class="hint">C/E番号に併記。図面とハンドブックの一覧に反映します。</div></div>
-    <div class="inspectorTabs" role="group" aria-label="機器詳細の表示"><button data-action="inspectorTab" data-tab="placement" class="${ui.inspectorTab!=='record'?'active':''}" aria-pressed="${ui.inspectorTab!=='record'}">配置調整</button><button data-action="inspectorTab" data-tab="record" class="${ui.inspectorTab==='record'?'active':''}" aria-pressed="${ui.inspectorTab==='record'}">納入情報</button></div>
+    <div class="inspectorTabs" role="group" aria-label="機器詳細の表示"><button data-action="inspectorTab" data-tab="placement" class="${ui.inspectorTab!=='record'?'active':''}" aria-pressed="${ui.inspectorTab!=='record'}">配置調整</button><button data-action="inspectorTab" data-tab="record" class="${ui.inspectorTab==='record'?'active':''}" aria-pressed="${ui.inspectorTab==='record'}">設置場所・型番</button></div>
     <div class="deviceFields inspectorPane" ${ui.inspectorTab==='record'?'':'hidden'}><div class="eyebrow">DEVICE RECORD / 機器情報</div>
       ${[['location','設置場所','例：正面入口',120],['model','メーカー・型番','例：メーカー名 / 型番',120],['ipAddress','IPアドレス','未入力でも出力できます',64],['serialNumber','シリアル番号','未入力でも出力できます',120]].map(([key,label,placeholder,max])=>`<div class="inspRow"><label class="k" for="device-${key}">${label}</label><input id="device-${key}" type="text" data-device-field="${key}" maxlength="${max}" value="${escapeHtml(dv[key]||'')}" placeholder="${placeholder}" autocomplete="off" spellcheck="false"></div>`).join('')}
-      <div class="sectionNote">ハンドブックの納入機器一覧に反映。空欄はあとから記入できます。</div>
+      <div class="sectionNote">設置場所・型番は提案書とハンドブックに反映します。IP・シリアルはあとから記入できます。</div>
     </div><div class="inspectorPane" ${ui.inspectorTab==='record'?'hidden':''}>`;
   if(isCam){
     body += `
@@ -4460,6 +4478,15 @@ function inspectorDeviceHtml(dv, floor){
     <div class="inspRow"><div class="k"><span>視野距離</span><span>m</span></div>
       <input type="number" min="0.5" step="0.5" value="${dv.rangeM}" data-field="rangeM">
       ${scaleWarn?'<div class="hint">縮尺未設定のため画面基準で表示しています</div>':''}
+    </div>`;
+  }
+  if(isAp){
+    body += `
+    <div class="inspRow"><label class="k" for="ap-range"><span>電波半径（想定）</span><span>m</span></label>
+      <input id="ap-range" type="number" min="0.5" step="any" value="${dv.rangeM}" data-field="rangeM">
+      <label class="k" style="justify-content:flex-start;gap:8px;margin-top:10px"><input type="checkbox" data-field="showApRangeLabel" ${dv.showApRangeLabel!==false?'checked':''}>図面に半径ラベルを表示</label>
+      <div class="hint">入力した半径の想定範囲です。実測値や壁による減衰は表していません。ラベルをOFFにしても円は残ります。</div>
+      ${scaleWarn?'<div class="hint">縮尺未設定のため画面上の仮表示です。距離に合わせるには図面の縮尺を設定してください。</div>':''}
     </div>`;
   }
   {
@@ -4483,13 +4510,7 @@ function inspectorDeviceHtml(dv, floor){
       <div class="hint">図面上の枠はドラッグで移動${ph?'、右下の白い角をドラッグでサイズ変更':''}できます</div>
     </div>`;
   }
-  if(isAp){
-    body += `
-    <div class="inspRow"><div class="k"><span>電波半径</span><span>m</span></div>
-      <input type="number" min="0.5" step="0.5" value="${dv.rangeM}" data-field="rangeM">
-      ${scaleWarn?'<div class="hint">縮尺未設定のため画面基準で表示しています</div>':''}
-    </div>`;
-  }
+
   body += `
     <div class="inspRow"><div class="k"><span>回転</span><span data-value-for="rot">${dv.rot||0}°</span></div>
       <div class="rotRow">
@@ -4526,7 +4547,7 @@ function inspectorWallHtml(w){
   const lenM = floor.scale.mPerPx!=null ? (lenPx*floor.scale.mPerPx).toFixed(2)+'m' : Math.round(lenPx)+'px(縮尺未設定)';
   return `
     <div class="inspHead"><span class="ic" style="background:#171b26">${ic('wall')}</span>
-      <div><div class="ttl">壁(遮蔽)</div><div class="sub">視野・電波を遮蔽</div></div></div>
+      <div><div class="ttl">壁(遮蔽)</div><div class="sub">カメラの視野を遮蔽</div></div></div>
     <div class="inspRow"><div class="k"><span>長さ</span></div><input type="text" value="${escapeHtml(lenM)}" readonly></div>
     <div class="inspActions"><button class="actBtn danger" data-action="delete">${ic('trash')}<span>削除</span></button></div>`;
 }
@@ -4579,10 +4600,26 @@ function initInspectorEvents(){
     const f = e.target.dataset.field;
     if(!f || !ui.sel) return;
     const ref = ui.sel.ref;
+    if(f==='showApRangeLabel' && ui.sel.kind==='device' && ref.type==='ap'){
+      if((ref.showApRangeLabel!==false)===e.target.checked)return;
+      pushHistory();ref.showApRangeLabel=e.target.checked;scheduleRender();markDirty();return;
+    }
     const v = parseFloat(e.target.value);
     let next;
     if(f==='fovDeg') next = clamp(v||90,10,360);
-    else if(f==='rangeM') next = Math.max(0.1, v||5);
+    else if(f==='rangeM'&&ui.sel.kind==='device'&&ref.type==='ap'){
+      // APの想定半径だけを検査する。カメラの視野距離は従来の入力規則を維持する。
+      const entered=e.target.value.trim(),number=Number(entered);
+      const visible=entered&&Number.isFinite(number)&&number>=0.5&&Number.isFinite(rangePx({...ref,rangeM:number},currentFloor()));
+      if(!visible){
+        e.target.dataset.apRangePending='true';
+        e.target.setCustomValidity('想定半径は0.5m以上で、図面に表示できる数値を入力してください。');
+        e.target.reportValidity();return;
+      }
+      delete e.target.dataset.apRangePending;
+      e.target.setCustomValidity('');next=number;
+    }
+    else if(f==='rangeM') next=Math.max(0.1,v||5);
     else if(f==='rot') next = v||0;
     else if(f==='photoScale') next = clamp(v||1, PHOTO_SCALE_MIN, PHOTO_SCALE_MAX);
     else return;
@@ -4657,6 +4694,7 @@ function worstCheckLevel(issues){
 function projectChecks(p=project){
   const issues=NEXT_PURE.runChecks(p),pending=nvsUnpriced(p).length;
   if(pending)issues.push({level:'warn',msg:`未算定の機器・部材${pending}件は、現在の大概算に含まれていません。案件管理の「費用」で確認してください。`});
+  const residual=nvsUnresolvedWireNotice(p);if(residual)issues.push({level:'warn',msg:residual});
   return issues;
 }
 function renderMoneyBar(){
@@ -4768,6 +4806,8 @@ function isEditableTarget(t){
 }
 function initKeyboard(){
   document.addEventListener('keydown', e=>{
+    // IMEの確定・取消に使うEnter/Escapeを、図面のショートカットとして扱わない。
+    if(e.isComposing||e.keyCode===229)return;
     if(e.key==='Shift' && (ui.mode==='wire'||ui.mode==='wall')){
       ui.wireShiftDown=true;
       scheduleRender();
@@ -4777,7 +4817,14 @@ function initKeyboard(){
     const mod = e.metaKey || e.ctrlKey;
     if(mod && e.key.toLowerCase()==='s'){e.preventDefault();saveProjectFile();return;}
     if(isEditableTarget(e.target)){
-      if(e.key==='Escape') e.target.blur();
+      if(e.key==='Escape'){
+        // 無効な編集中半径だけを取消す。有効値や旧案件の確定済み半径は変えない。
+        if(e.target.dataset?.apRangePending==='true'&&ui.sel?.kind==='device'){
+          e.target.value=String(ui.sel.ref.rangeM??'');
+          e.target.setCustomValidity('');delete e.target.dataset.apRangePending;
+        }
+        e.target.blur();
+      }
       return;
     }
     if(mod && e.key.toLowerCase()==='z' && e.shiftKey){ e.preventDefault(); redo(); return; }
@@ -5261,6 +5308,7 @@ function openSettingsModal(){
   els.modalBox.className = 'modalBox wide';
   els.modalBox.innerHTML = `
     <h3>設定</h3>
+    <p class="hint">この画面の金額・率は、空欄も0として適用されます。0円にする項目は0を入力し、未確定の項目は元の値を残して確認してください。</p>
     <div class="settingsTabs">
       <button type="button" class="active" data-tab="devices">機器</button>
       <button type="button" data-tab="wires">配線</button>
@@ -5496,7 +5544,7 @@ function renderFloorImage(floor, maxW, maxH, opts){
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText('図面画像が登録されていません', w/2, h/2);
       }
-      drawWalls(ctx, floor); drawWires(ctx, floor, {showLengths:mergeDrawingOptions(project.drawingOptions).exportWireLengths,labelScale:handbook?2.5:2,bounds:{w,h}}); drawRisers(ctx, floor); drawDevices(ctx, floor);
+      drawWalls(ctx, floor); drawWires(ctx, floor, {showLengths:mergeDrawingOptions(project.drawingOptions).exportWireLengths,labelScale:handbook?2.5:2,bounds:{w,h}}); drawRisers(ctx, floor); drawDevices(ctx, floor, {w,h});
       // 実写画像の枠は提案書スライド(forcePhotos)かつトグルONのときだけ描く。見積書PDF/pptxは従来どおり枠なしのまま
       if(exportPhotos){
         // 図面全体に対して枠が小さすぎると提案書で読めないため、図面幅の約10%になるよう倍率を上げる。
@@ -6577,7 +6625,7 @@ function openProjectNotes(initialTab){
     const tab=e.target.closest('[data-notes-tab]');
     if(tab){overlay._tab=tab.dataset.notesTab;renderProjectNotes(overlay);overlay.querySelector(`[data-notes-tab="${overlay._tab}"]`).focus();return;}
     const device=e.target.closest('[data-notes-device]');
-    if(device){const idx=overlay._floorIndex,dv=project.floors[idx].devices.find(d=>d.id===device.dataset.notesDevice);closeProjectNotes();if(dv){ui.floorIdx=idx;ui.mode='select';ui.tool=null;ui.drawing=null;selectObj('device',dv,'record');revealSelectedDevice();}return;}
+    if(device){const idx=overlay._floorIndex,dv=project.floors[idx].devices.find(d=>d.id===device.dataset.notesDevice);closeProjectNotes();if(dv){ui.floorIdx=idx;ui.mode='select';ui.tool=null;resetFloorInteraction();selectObj('device',dv,'record');revealSelectedDevice();}return;}
     const action=e.target.closest('[data-notes-action]')?.dataset.notesAction;
     if(action==='close')closeProjectNotes();
     else if(action==='csv')exportSurveyCsv();
@@ -8056,6 +8104,13 @@ function runSelfTests(){
     const rows = NEXT_PURE.proposalLegend(pricing, floor);
     assertEqual(rows.map(r=>r.qtyLabel), ['2台','10m','1箇所']);
   });
+  t('proposalLegend: 0.01m計上の配線を0mと表示しない', ()=>{
+    const pricing = { devices:{}, wires:{ normal:{label:'通常配線',color:'#222'} }, risers:{} };
+    const floor = { scale:{mPerPx:0.005}, devices:[], risers:[], wires:[{type:'normal',pts:[{x:0,y:0},{x:1,y:0}]}] };
+    assertEqual(NEXT_PURE.proposalLegend(pricing,floor)[0].qtyLabel,'0.01m');
+    floor.scale.mPerPx=0.0049;
+    assertEqual(NEXT_PURE.proposalLegend(pricing,floor)[0].qtyLabel,'0m');
+  });
   t('proposalLegend: 縮尺未設定の配線は数量を(縮尺未設定)と表示する', ()=>{
     const pricing = { devices:{}, wires:{ lan:{label:'LAN',color:'#222'} }, risers:{} };
     const rows = NEXT_PURE.proposalLegend(pricing, { scale:{mPerPx:null}, devices:[], risers:[], wires:[{ type:'lan', pts:[{x:0,y:0},{x:10,y:0}] }] });
@@ -8491,10 +8546,16 @@ function nvsNodeInfo(node,p=project){const all=nvsAssets(p),linked=(node.assetKe
 function nvsUnpriced(p=project){return nvsEnsure(p).assets.filter(a=>a.status!=='対象外'&&((a.mappedTo&&!nvsMappingExists(p,a))||!a.mappedTo&&((a.bodyQty??a.quantity??1)>0&&a.bodyUnit==null&&p.priceMode!=='useOnly'||(a.installQty??0)>0&&a.installUnit==null)));}
 function nvsMappedQuantityIssue(a){return a.mappedTo&&(a.quantity??1)!==1?(a.name||'機器')+'の候補記録は'+a.quantity+'台、対応先は1台です。対応を解除して数量を確認してください。':'';}
 function nvsIssues(p=project){const n=nvsEnsure(p),all=nvsAssets(p),keys=new Set(all.map(a=>a.key)),issues=[];
+  // 旧保存データの写真参照は消さず、欠落だけを読込後に明示する。
+  for(const floor of p.floors)for(const device of floor.devices){
+    if(device.photoId&&!p.photos?.[device.photoId])issues.push(
+      (floor.name||'フロア')+' / '+(device.location||device.annotation||device.model||device.id||'機器')+
+      ': 機器の写真が見つかりません。写真を選び直してください。');
+  }
   if(nvsUnpriced(p).length)issues.push(`単価未設定の機器・部材 ${nvsUnpriced(p).length}件（大概算に含まれていません）`);
   for(const [key,g] of Object.entries(n.topology)){if(!NVS_SCENARIOS[key])continue;const assigned=new Set();for(const [i,node] of g.nodes.entries()){
     const missing=(node.assetKeys||[]).filter(id=>!keys.has(id)).length;
-    if(missing)issues.push(NVS_SCENARIOS[key]+'構成 / ブロック'+(i+1)+'「'+nvsNodeInfo(node,p).name+'」: 台帳にない関連機器'+missing+'件。「設計」で関連機器を確認してください。');
+    if(missing)issues.push(NVS_SCENARIOS[key]+'構成 / ブロック'+(i+1)+'「'+nvsNodeInfo(node,p).name+'」: 台帳にない関連機器'+missing+'件。「詳細な記録 → 接続構成」で関連機器を確認してください。');
     for(const id of node.assetKeys||[]){if(assigned.has(id))issues.push(NVS_SCENARIOS[key]+'構成で同じ機器が複数ブロックに含まれています');assigned.add(id);}if(!(node.assetKeys||[]).length)issues.push(NVS_SCENARIOS[key]+'構成: '+nvsNodeInfo(node,p).name+'は台帳との対応未確認');}}
   for(const a of n.assets)if(a.mappedTo&&!nvsMappingExists(p,a))issues.push((a.name||'機器')+'の対応先がありません。対応を解除または再設定してください');
   for(const a of n.assets){const issue=nvsMappedQuantityIssue(a);if(issue)issues.push(issue);}
@@ -8510,8 +8571,39 @@ function nvsIssues(p=project){const n=nvsEnsure(p),all=nvsAssets(p),keys=new Set
     if(missingAssets)issues.push(context+': 台帳にない関連機器'+missingAssets+'件。関連機器を確認してください。');
     if(missingPhotos)issues.push(context+': 写真が見つかりません（'+missingPhotos+'件）。登録済み写真を確認してください。');
   }
-  for(const key of Object.keys(NVS_SCENARIOS)){const missing=nvsMissingWireLinks(p,key);if(missing.length)issues.push(NVS_SCENARIOS[key]+'構成: 施工配線が見つからない接続'+missing.length+'件。「設計」の接続一覧で確認してください。');}
+  for(const key of Object.keys(NVS_SCENARIOS)){const missing=nvsMissingWireLinks(p,key);if(missing.length)issues.push(NVS_SCENARIOS[key]+'構成: 施工配線が見つからない接続'+missing.length+'件。「詳細な記録 → 接続構成」の接続一覧で確認してください。');}
+  const residual=nvsUnresolvedWireNotice(p);if(residual)issues.push(residual);
   return [...new Set(issues)];
+}
+// 構成図の旧接続と、構成図未作成の配置図の両方で接続先不明の施工配線を探す。
+// 配線自体は見積対象として残す既存仕様なので、自動削除・費用0化はしない。
+function nvsUnresolvedWireLinks(p,scenario){
+  if(scenario!=='proposed')return [];
+  const graph=nvsEnsure(p).topology[scenario],live=new Set(nvsAssets(p).map(a=>a.key));
+  const physical=new Map(p.floors.flatMap(f=>f.wires.map((wire,i)=>[nvsPlotWireKey(f,wire),f.name+' / 配線'+(i+1)])));
+  const represented=new Set(graph.links.flatMap(link=>link.wireKeys?.length?link.wireKeys:[link.wireKey]).filter(key=>physical.has(key)));
+  const removed=graph.links.flatMap((link,index)=>{
+    const missing=[link.from,link.to].map(id=>graph.nodes.find(node=>node.id===id)).filter(node=>node&&(node.assetKeys||[]).some(key=>key.startsWith('device:')&&!live.has(key)));
+    const wires=[...new Set(link.wireKeys?.length?link.wireKeys:[link.wireKey])].filter(key=>physical.has(key));
+    return missing.length&&wires.length?[{index,link,missing,wires,labels:wires.map(key=>physical.get(key))}]:[];
+  });
+  // 接続図をまだ作っていなくても、図面で接続先を確定できない有料配線は見落とさせない。
+  // 手動の接続図で確認済みの配線は重ねて警告しない。
+  const pending=nvsPlotAnalyze(p).rows.flatMap((row,i)=>{
+    const wires=row.wireKeys.filter(key=>physical.has(key)&&!represented.has(key));
+    return !row.valid&&/端点付近に機器がありません|指定した機器がありません/.test(row.reason)&&wires.length?
+      [{index:graph.links.length+i,link:null,missing:[],wires,labels:wires.map(key=>physical.get(key)),pending:true}]:[];
+  });
+  return [...removed,...pending];
+}
+function nvsUnresolvedWireNotice(p=project,only=null){
+  const rows=only?[only]:nvsUnresolvedWireLinks(p,'proposed');if(!rows.length)return '';
+  const labels=[...new Set(rows.flatMap(row=>row.labels))],amount=NEXT_PURE.calcTotals(p).wiring;
+  const scaled=new Map(p.floors.flatMap(f=>f.wires.map(w=>[nvsPlotWireKey(f,w),Number.isFinite(f.scale?.mPerPx)&&f.scale.mPerPx>0])));
+  const unscaled=rows.some(row=>row.wires.some(key=>!scaled.get(key)));
+  const charge=unscaled?'縮尺未設定の配線は費用未計上です。設定済みの配線費（全配線分）は¥'+amount.toLocaleString()+'です。':'図面と見積に残り、配線費（全配線分）¥'+amount.toLocaleString()+'に計上中です。';
+  const lead=rows.some(row=>row.pending)?rows.some(row=>row.missing.length)?'接続先がない・未確認の施工配線':'接続先未確認の施工配線':'接続先機器が配置からなくなった施工配線';
+  return lead+': '+labels.join(' / ')+'。'+charge+'残すか削除するか確認してください。';
 }
 // 再生成で旧接続を保持した場合も、削除された施工配線への参照は解決済みと扱わない。
 function nvsMissingWireLinks(p,scenario){
@@ -8577,8 +8669,15 @@ async function nvsWriteFile(filename,blob){
   if(window.showSaveFilePicker){try{const ext=filename.endsWith('.json')?'.json':'.zip';const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:ext==='.zip'?'NVS案件パッケージ':'案件JSON',accept:{[ext==='.zip'?'application/zip':'application/json']:[ext]}}]});const w=await handle.createWritable();try{await w.write(blob);await w.close();}catch(e){await w.abort().catch(()=>{});throw e;}return 'saved';}catch(e){if(e.name==='AbortError')return false;throw new Error('保存できませんでした。別の保存先を選ぶか「ダウンロード保存」を使用してください: '+e.message);}}
   downloadBlob(filename,blob);return 'download';
 }
+// 無効な数値は画面上だけに残るため、修正前に保存や画面切替を成功扱いしない。
+function nvsRequireValidPendingInput(){
+  const field=nvsOverlay?.querySelector('[data-nvs-path]:invalid')||els.inspector?.querySelector('[data-field=rangeM][data-ap-range-pending=true]');
+  if(!field)return true;
+  field.focus({preventScroll:true});field.scrollIntoView({block:'nearest'});field.reportValidity();
+  toast('入力値を修正してから保存・画面切替してください。','warn');return false;
+}
 async function nvsSave(format='zip',forceDownload=false){
-  if(state.nvsSaving)return false;try{nvsMiiFlush();}catch(e){toast(e.message,'warn');return false;}state.nvsSaving=true;const owner=project,change=state.nvsChange||0,n=nvsEnsure(owner);const revision=nvsId(),date=new Date().toISOString();
+  if(state.nvsSaving||!nvsRequireValidPendingInput())return false;try{nvsMiiFlush();}catch(e){toast(e.message,'warn');return false;}state.nvsSaving=true;const owner=project,change=state.nvsChange||0,n=nvsEnsure(owner);const revision=nvsId(),date=new Date().toISOString();
   try{const data=nvsClone(serializeProject(owner));Object.assign(data.nvs,{toolVersion:NVS_VERSION,parentRevisionId:n.revisionId,revisionId:revision,savedAt:date});
     const stem='NVS_'+(owner.meta.title||'無題').replace(/[\\/:*?"<>|]/g,'_')+'_'+nvsToday()+'_'+revision.slice(-8),filename=stem+(format==='json'?'.json':'.nvs.zip');
     const blob=format==='json'?new Blob([JSON.stringify(data,null,2)],{type:'application/json'}):new Blob([nvsBuildPackage(data)],{type:'application/zip'});
@@ -8605,8 +8704,8 @@ function nvsImportMii(data){
 }
 function nvsSnapshot(label){if(!label.trim())throw new Error('版の名前を入力してください');nvsMiiFlush();const n=nvsEnsure();const data=nvsClone(serializeProject(project)),id=nvsId(),date=new Date().toISOString();data.nvs.order.baselineLabel=n.milestones.find(m=>m.id===n.order.baselineId)?.label||n.order.baselineLabel||'';data.nvs.milestones=[];Object.assign(data.nvs,{revisionId:id,parentRevisionId:n.revisionId,savedAt:date});const entry={id,label:label.trim(),date,stage:n.profile.stage,snapshot:data};n.milestones.push(entry);markDirty();return entry;}
 function nvsInit(){
-  const button=document.createElement('button');button.id='nvsOpen';button.className='pillBtn';button.type='button';button.textContent='案件管理';button.addEventListener('click',()=>nvsOpen());els.btnSave.before(button);els.btnSave.title='案件パッケージを保存（ZIPを直接読込できます）';
-  const hero=document.createElement('button');hero.id='nvsStart';hero.innerHTML=ic('edit')+'<span>商談・調査から始める</span>';hero.addEventListener('click',()=>nvsOpen());els.heroLoad.before(hero);
+  const button=document.createElement('button');button.id='nvsOpen';button.className='pillBtn';button.type='button';button.textContent='提案資料';button.addEventListener('click',()=>nvsOpen());els.btnSave.before(button);els.btnSave.title='案件パッケージを保存（ZIPを直接読込できます）';
+  const hero=document.createElement('button');hero.id='nvsStart';hero.innerHTML=ic('edit')+'<span>提案資料から始める</span>';hero.addEventListener('click',()=>nvsOpen());els.heroLoad.before(hero);
   els.loadFileInput.accept='.json,.zip,.nvs,application/json,application/zip';els.heroLoad.innerHTML=ic('load')+'<span>保存した案件を開く / ZIP・JSON</span>';
 }
 
@@ -8622,7 +8721,7 @@ function nvsField(label,path,type='text',options){const value=nvsValue(path)??''
   if(type==='textarea')field=`<textarea ${attr} rows="3">${a(String(value))}</textarea>`;
   else if(type==='select')field=`<select ${attr}>${Object.entries(Array.isArray(options)?Object.fromEntries(options.map(v=>[v,v])):options).map(([k,v])=>`<option value="${a(k)}" ${String(value)===k?'selected':''}>${a(v)}</option>`).join('')}</select>`;
   else if(type==='check')field=`<input ${attr} type="checkbox" ${value===true?'checked':''}>`;
-  else field=`<input ${attr} type="${type}" value="${a(String(value))}" ${type==='number'?'step="any"':''}>`;
+  else field=`<input ${attr} type="${type}" value="${a(String(value))}" ${type==='number'?'step="any"':''} ${/^nvs\.assets\.\d+\.quantity$/.test(path)?'required':''}>`;
   return `<label class="nvsField ${type==='textarea'?'nvsWide':''} ${type==='check'?'nvsCheck':''}"><span>${a(label)}</span>${field}</label>`;
 }
 // 参照先の削除を未指定と混同せず、元のIDを保持して明示的な解除・再指定を可能にする。
@@ -8640,14 +8739,24 @@ function nvsAssetSelect(path,multiple=true){
   const missingOptions=missing.map((key,i)=>{const name=nodes.find(node=>node.name&&(node.assetKeys||[]).includes(key))?.name;return `<option value="${escapeHtml(key)}" selected data-nvs-missing-ref>参照先なし: ${escapeHtml(name||'関連機器'+(i+1))}</option>`;}).join('');
   return `<label class="nvsField nvsWide"><span>関連機器（台帳から選択${multiple?'・複数可':''}）</span><select data-nvs-path="${escapeHtml(path)}" ${multiple?'multiple size="4"':' '}>${multiple?'':'<option value="">未指定</option>'}${missingOptions}${assets.map(a=>`<option value="${escapeHtml(a.key)}" ${selected.includes(a.key)?'selected':''}>${escapeHtml(nvsAssetDisplayName(a)+' / '+a.location+' / '+a.quantity+'台')}</option>`).join('')}</select>${missing.length?'<span class="nvsHint">「参照先なし」の選択を解除すると、この記録との関連だけを外せます。PCではCtrl / ⌘＋クリックで個別に解除できます。</span>':''}</label>`;
 }
-function nvsPhotos(path){const row=nvsValue(path),ids=row.photoIds||[];return `<div class="nvsPhotos">${ids.map((id,i)=>{const p=project.photos[id];return `<div class="nvsPhoto">${p?`<img src="${escapeHtml(p.src)}" alt="${escapeHtml(p.name)}"><label>写真名<input data-nvs-photo-name="${escapeHtml(id)}" value="${escapeHtml(p.name)}"></label><label>用途<select data-nvs-photo-role="${escapeHtml(path)}" data-photo-id="${escapeHtml(id)}">${['現地写真','既設の状況','設置箇所','画角イメージ','施工前','施工後','試験・確認'].map(role=>`<option ${(row.photoRoles?.[id]||'現地写真')===role?'selected':''}>${role}</option>`).join('')}</select></label>`:'写真がありません'}${nvsButton('外す','unlink-photo',path+'|'+i)}</div>`;}).join('')}</div><div class="nvsActions">${nvsButton('写真を追加','photo',path)}${nvsButton('登録済み写真を使う','reuse-photo',path)}</div>`;}
+function nvsPhotos(path){
+  const row=nvsValue(path),ids=row.photoIds||[],roles=row.photoRoles||{};
+  const cards=ids.map((id,i)=>{const p=project.photos[id];return `<div class="nvsPhoto">${p?`<img src="${escapeHtml(p.src)}" alt="${escapeHtml(p.name)}"><label>写真名<input data-nvs-photo-name="${escapeHtml(id)}" value="${escapeHtml(p.name)}"></label><label>用途<select data-nvs-photo-role="${escapeHtml(path)}" data-photo-id="${escapeHtml(id)}">${['現地写真','既設の状況','設置箇所','画角イメージ','施工前','施工後','試験・確認'].map(role=>`<option ${(roles[id]||'現地写真')===role?'selected':''}>${role}</option>`).join('')}</select></label>`:'写真がありません'}${nvsPhotoPreference(path,row,id)}${nvsButton('外す','unlink-photo',path+'|'+i)}</div>`;}).join('');
+  const typed=ids.filter(id=>roles[id]==='設置箇所'||roles[id]==='画角イメージ');
+  const ambiguous=path.startsWith('nvs.areas.')&&ids.length&&(ids.length>2||typed.length!==ids.length||new Set(typed.map(id=>roles[id])).size!==typed.length);
+  const slots=ambiguous?nvsMiiPhotoSlotIds(row):[],position=id=>id?'写真'+(ids.indexOf(id)+1):'なし';
+  const hint=ambiguous?`<p class="nvsHint">資料の2欄: 設置箇所 ${nvsAreaUsesDrawingPhoto(row)?'配置図の写真（未設定ならなし）':position(slots[0])} / 画角イメージ ${position(slots[1])}。用途が全て未指定の旧記録は保存順の先頭2枚、同じ資料用途が複数なら先の写真を表示します。欄外の写真も案件に残ります。${nvsAreaUsesDrawingPhoto(row)?'設置箇所写真の変更は配置図で行ってください。':'表示先を変えるときは各写真の用途を選んでください。'}</p>`:'';
+  return `<div data-nvs-photo-group="${escapeHtml(path)}"><div class="nvsPhotos">${cards}</div><div class="nvsActions">${nvsButton('写真を追加','photo',path)}${nvsButton('登録済み写真を使う','reuse-photo',path)}</div>${hint}${path.startsWith('nvs.areas.')&&nvsAreaUsesDrawingPhoto(row)?'<p class="nvsHint">このカメラの設置箇所写真は配置図から反映します。変更は配置図で行い、画角イメージはここで選択できます。</p>':''}</div>`;
+}
 function nvsCaseView(){const n=nvsEnsure(),p=n.profile,issues=nvsIssues();const tasks=n.records.filter(r=>!['ok','na'].includes(r.status));
   return `<div class="nvsSummary"><div><span>現在の工程</span><strong data-nvs-stage>${escapeHtml(p.stage)}</strong></div><div><span>調査エリア</span><strong>${n.areas.length}か所</strong></div><div><span>機器・部材</span><strong>${nvsAssets().reduce((s,a)=>s+a.quantity,0)}点</strong></div><div><span>未完了の記録</span><strong>${tasks.length}件</strong></div></div>`+
     nvsBasicCard()+nvsCard('案件概要',`<div class="nvsGrid">${nvsField('案件名','meta.title')}${nvsField('顧客名','meta.customer')}${nvsField('拠点名','nvs.profile.site')}${nvsField('住所','nvs.profile.address')}${nvsField('主担当','nvs.profile.owner')}${nvsField('工程・状態','nvs.profile.stage','select',NVS_STAGES)}${nvsField('既設設備','nvs.profile.existingStatus','select',['未確認','既設あり','一部既設','なし'])}${nvsField('希望時期','nvs.profile.timing')}${nvsField('予算感','nvs.profile.budget')}${nvsField('関係者・意思決定者','nvs.profile.stakeholders')}${nvsField('要件・ヒアリング（内部記録）','nvs.profile.requirements','textarea')}${nvsField('決定事項・未確定事項（内部記録）','nvs.profile.decisions','textarea')}</div>`)+
-    nvsCard('お客様に伝える提案方針',`<p class="nvsHint">この4項目は「資料 → 見積・提案書」から出す既存VAS提案書の「提案の要点」に反映します。MII形式の調査・提案は「入力フォーム」で記録します。</p><div class="nvsGrid">${BRIEF_FIELDS.map(([k,l])=>nvsField(l,'brief.'+k,'textarea')).join('')}</div>`)+
+    nvsCard('お客様に伝える提案方針',`<p class="nvsHint">この4項目は「資料 → 見積・提案書」から出す既存VAS提案書の「提案の要点」に反映します。MII形式の調査・提案は「提案書を作る」で記録します。</p><div class="nvsGrid">${BRIEF_FIELDS.map(([k,l])=>nvsField(l,'brief.'+k,'textarea')).join('')}</div>`)+
     nvsCard('商談・打合せ履歴',n.meetings.map((r,i)=>`<article class="nvsEntry"><div class="nvsGrid">${nvsField('日付',`nvs.meetings.${i}.date`,'date')}${nvsField('出席者',`nvs.meetings.${i}.participants`)}${nvsField('打合せ記録（内部）',`nvs.meetings.${i}.note`,'textarea')}${nvsField('次回アクション',`nvs.meetings.${i}.nextAction`,'textarea')}</div>${nvsButton('記録を削除','delete','nvs.meetings.'+i)}</article>`).join('')||nvsEmpty('商談前から、打合せの内容と次の確認事項を残せます。'),nvsButton('打合せを追加','add','meetings'))+
     nvsCard('確認が必要なこと',issues.length?`<ul>${issues.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul>`:nvsEmpty('参照や費用の不整合は検出されていません。現地の確認済みを意味するものではありません。'))+
-    nvsCard('保存・引継ぎ',`<p class="nvsHint">ZIPを1つ保存し、「読込」でそのZIPを選ぶだけ。手動の展開は不要です。写真・図面・重要版を含みます。</p><div class="nvsGrid">${nvsField('引継ぎ先','nvs.profile.handoffTo')}${nvsField('引継ぎ事項・残課題','nvs.profile.handoffNote','textarea')}</div><div class="nvsActions">${nvsButton('案件パッケージを保存','save','',true)}${nvsButton('ダウンロード保存','download')}${nvsButton('JSONで保存','json')}${nvsButton('案件を読込','load')}${nvsButton('展開済みフォルダから読込','folder')}${nvsButton('別案件として複製','duplicate')}</div><p class="nvsHint">案件ID: ${escapeHtml(n.projectId)} / 保存版: <span data-nvs-saved-revision>${escapeHtml(n.revisionId||'未保存')}</span><br>端末内の自動保存は復旧用です。保管・引継ぎには案件ファイルを保存してください。</p>`)+nvsMilestoneView();
+    nvsHandoffView();
+}
+function nvsHandoffView(){const n=nvsEnsure();return nvsCard('保存・引継ぎ',`<p class="nvsHint">ZIPを1つ保存し、「読込」でそのZIPを選ぶだけ。手動の展開は不要です。写真・図面・重要版を含みます。</p><div class="nvsGrid">${nvsField('引継ぎ先','nvs.profile.handoffTo')}${nvsField('引継ぎ事項・残課題','nvs.profile.handoffNote','textarea')}</div><div class="nvsActions">${nvsButton('案件パッケージを保存','save','',true)}${nvsButton('ダウンロード保存','download')}${nvsButton('JSONで保存','json')}${nvsButton('案件を読込','load')}${nvsButton('展開済みフォルダから読込','folder')}${nvsButton('別案件として複製','duplicate')}</div><p class="nvsHint">案件ID: ${escapeHtml(n.projectId)} / 保存版: <span data-nvs-saved-revision>${escapeHtml(n.revisionId||'未保存')}</span><br>端末内の自動保存は復旧用です。保管・引継ぎには案件ファイルを保存してください。</p>`)+nvsMilestoneView();
 }
 // 画面上のC/E番号ではなく既存の個体IDで保存版と比較する。同数の入替を見落とさない。
 function nvsMilestoneAssetChanges(before,after){
@@ -8692,9 +8801,9 @@ function nvsMappedAssetView(r,index){
 }
 function nvsExtraAssetsView(){const n=nvsEnsure();return nvsCard('候補の機器・部材',`<p class="nvsHint">診断対象・流用品・サービス等も登録できます。数量や単価は明示入力し、図面に配置した分は台帳を対応付けます。</p>`+n.assets.map((r,i)=>{const p=`nvs.assets.${i}`;if(r.mappedTo)return nvsMappedAssetView(r,i);return `<article class="nvsEntry"><div class="nvsGrid">${nvsField('名称',p+'.name')}${nvsField('種類',p+'.type','select',NVS_NODE_TYPES)}${nvsField('数量',p+'.quantity','number')}${nvsField('利用区分',p+'.status','select',['要確認','新設','流用','移設','支給','対象外'])}${nvsField('型番',p+'.model')}${nvsField('場所',p+'.location')}${nvsField('IPアドレス',p+'.ipAddress')}${nvsField('シリアル番号',p+'.serialNumber')}${nvsField('用途・備考',p+'.note','textarea')}</div>${r.importQuantityPending?'<p class="nvsNotice">MIIの機器一覧には確定数量がありません。数量は仮の1です。数量を確認して入力してください。</p>':''}<div class="nvsActions">${nvsButton('既存の配置機器と対応付け','map-asset',String(i))}${nvsButton('現在フロアに1台追加','place-asset',String(i))}<span data-nvs-split-action="${i}">${(r.quantity||0)>1?nvsButton('1台ずつの機器に分ける','split-asset',String(i)):''}</span>${r.mappedTo?nvsButton('配置機器との対応を解除','unmap-asset',String(i)):''}${nvsButton('機器・部材を削除','delete',p)}</div>${r.mappedTo?`<p class="nvsHint">配置機器へ対応済み: ${escapeHtml(r.mappedTo)}（この行の費用は加算しません）</p>`:''}</article>`;}).join(''),nvsButton('機器・部材を追加','add','assets'));}
 function nvsCostNotice(pending){return '予算検討用の大概算です。正式見積ではありません。'+(pending?'未算定分は現在の金額に含まれていません。':'');}
-function nvsCostView(){const total=NEXT_PURE.calcTotals(project),n=nvsEnsure(),unpriced=nvsUnpriced();return `<div class="nvsSummary"><div><span>案件全体の大概算（税込）</span><strong>¥${total.total.toLocaleString()}</strong></div><div><span>未算定の機器・部材</span><strong>${unpriced.length}件</strong></div></div><p class="nvsNotice" data-nvs-cost-notice>${nvsCostNotice(unpriced.length)}</p>`+
+function nvsCostView(){const total=NEXT_PURE.calcTotals(project),n=nvsEnsure(),unpriced=nvsUnpriced(),residual=nvsUnresolvedWireNotice(project);return `<div class="nvsSummary"><div><span>案件全体の大概算（税込）</span><strong>¥${total.total.toLocaleString()}</strong></div><div><span>未算定の機器・部材</span><strong>${unpriced.length}件</strong></div></div><p class="nvsNotice" data-nvs-cost-notice>${nvsCostNotice(unpriced.length)}</p>${residual?`<p class="nvsNotice" data-nvs-residual-wire>${escapeHtml(residual)}</p>`:''}`+
     nvsCard('配置機器の見積対象',`<p class="nvsHint">本体費と取付費を個別に選べます。設定費は既存の設定台数で別に指定します。ユースのみ設定では本体費は加算しません。</p>`+project.floors.map((f,fi)=>f.devices.map((d,di)=>{const p=`floors.${fi}.devices.${di}.costScope`;return `<div class="nvsAssetRow"><div><strong>${escapeHtml(nvsDeviceDisplayName(f,d))}</strong><p>${escapeHtml(d.location||f.name)}</p></div><div class="nvsActions">${nvsCostCheckbox('本体費',p+'.body',d.costScope?.body!==false)}${nvsCostCheckbox('取付費',p+'.install',d.costScope?.install!==false)}</div></div>`;}).join('')).join(''),nvsButton('単価・設定台数・内訳を開く','legacy-cost'))+
-    nvsCard('未配置機器・部材の費用',n.assets.map((a,i)=>{const p=`nvs.assets.${i}`;return `<article class="nvsEntry"><strong>${escapeHtml(a.name||'名称未記入')}</strong>${nvsMappedQuantityIssue(a)?`<p class="nvsNotice">${escapeHtml(nvsMappedQuantityIssue(a))}</p>`:''}${a.mappedTo||a.status==='対象外'?'<p>配置側で算定、または対象外です。</p>':`<div class="nvsGrid">${nvsField('本体費の対象数量',p+'.bodyQty','number')}${nvsField('本体単価（空欄＝未算定）',p+'.bodyUnit','number')}${nvsField('取付費の対象数量',p+'.installQty','number')}${nvsField('取付単価（空欄＝未算定）',p+'.installUnit','number')}</div>`}</article>`;}).join('')||nvsEmpty('設計画面で未配置の機器・部材を登録できます。'))+
+    nvsCard('未配置機器・部材の費用',n.assets.map((a,i)=>{const p=`nvs.assets.${i}`;return `<article class="nvsEntry"><strong>${escapeHtml(a.name||'名称未記入')}</strong>${nvsMappedQuantityIssue(a)?`<p class="nvsNotice">${escapeHtml(nvsMappedQuantityIssue(a))}</p>`:''}${a.mappedTo||a.status==='対象外'?'<p>配置側で算定、または対象外です。</p>':`<div class="nvsGrid">${nvsField('本体費の対象数量（空欄＝機器・部材の数量）',p+'.bodyQty','number')}${nvsField('本体単価（空欄＝未算定）',p+'.bodyUnit','number')}${nvsField('取付費の対象数量（空欄・0＝計上なし）',p+'.installQty','number')}${nvsField('取付単価（空欄＝未算定）',p+'.installUnit','number')}</div>`}</article>`;}).join('')||nvsEmpty('設計画面で未配置の機器・部材を登録できます。'))+
     nvsCard('見積・受注の範囲',`<div class="nvsGrid">${nvsField('対象範囲','nvs.order.scope','textarea')}${nvsField('対象外・別途条件','nvs.order.exclusions','textarea')}${nvsField('正式見積・受注番号','nvs.order.number')}${nvsField('受注日','nvs.order.date','date')}${nvsField('受注基準の保存版','nvs.order.baselineId','select',{'':'未指定',...Object.fromEntries(n.milestones.map(m=>[m.id,m.label]))})}</div><div class="nvsActions">${nvsButton('見積PDF・PPTX・CSV','legacy-output','',true)}${nvsButton('見積提示時の版を残す','snapshot')}</div>`);
 }
 function nvsCostCheckbox(label,path,checked){return `<label class="nvsField nvsCheck"><span>${label}</span><input type="checkbox" data-nvs-path="${path}" ${checked?'checked':''}></label>`;}
@@ -8715,20 +8824,22 @@ function nvsRender(){
     catch(error){nvsView.tab=el._tab||'mii';toast(error.message,'warn');return;}
   }
   if(!el.querySelector('.nvsDialog'))el.innerHTML='<div class="nvsDialog"><header class="nvsHeader"></header><nav class="nvsNav" aria-label="案件の作業画面"></nav><main class="nvsBody"></main><div class="nvsMiiHost" hidden></div><footer class="nvsFooter"><span>変更は案件に記録されます。引継ぎ・保管前に案件保存してください。</span><span>ZIPは展開せず直接読込できます</span></footer></div>';
-  el.querySelector('.nvsHeader').innerHTML=`<div><span class="nvsEyebrow">VAS MITSU / 案件管理 ${NVS_VERSION}</span><h2>${escapeHtml(project.meta.title||'新しい案件')}</h2><p><span data-nvs-customer>${escapeHtml(project.meta.customer||'顧客未登録')}</span> <span data-nvs-stage>${escapeHtml(n.profile.stage)}</span></p></div><div class="nvsActions">${nvsButton('案件保存','save','',true)}${nvsButton('読込','load')}${nvsButton('配置図へ戻る','close')}</div>`;
-  el.querySelector('.nvsNav').innerHTML=Object.entries({mii:'入力フォーム',case:'案件概要',survey:'調査管理',design:'設計',cost:'費用',operations:'施工・運用',documents:'資料'}).map(([k,v])=>`<button data-nvs-action="tab" data-nvs-arg="${k}" aria-current="${tab===k?'page':'false'}" class="${tab===k?'active':''}">${v}</button>`).join('');
+  el.querySelector('.nvsHeader').innerHTML=`<div><span class="nvsEyebrow">VAS MITSU / 提案資料</span><h2>${escapeHtml(project.meta.title||'新しい案件')}</h2><p><span data-nvs-customer>${escapeHtml(project.meta.customer||'顧客未登録')}</span> <span data-nvs-stage>${escapeHtml(n.profile.stage)}</span></p></div><div class="nvsActions">${nvsButton('案件保存','save','',true)}${nvsButton('読込','load')}${nvsButton('配置図へ戻る','close')}</div>`;
+  const navButton=([k,v])=>`<button data-nvs-action="tab" data-nvs-arg="${k}" aria-current="${tab===k?'page':'false'}" class="${tab===k?'active':''}">${v}</button>`;
+  el.querySelector('.nvsNav').innerHTML=Object.entries({mii:'提案書を作る',cost:'見積を確認',handoff:'保存・引継ぎ'}).map(navButton).join('')+`<details class="nvsNavDetails" ${['case','survey','design','operations','documents'].includes(tab)?'open':''}><summary>詳細な記録</summary><div>${Object.entries({case:'案件概要',survey:'調査記録',design:'接続構成',operations:'施工・保守',documents:'その他の出力'}).map(navButton).join('')}</div></details>`;
   const body=el.querySelector('.nvsBody'),host=el.querySelector('.nvsMiiHost');
   body.hidden=tab==='mii';host.hidden=tab!=='mii';el.querySelector('.nvsDialog').classList.toggle('miiFormActive',tab==='mii');el._tab=tab;
   if(tab==='mii'){
     if(!nvsMiiSession?.host)void nvsOpenMii(project,{host}).catch(error=>{if(el===nvsOverlay)toast(error.message,'warn');});
-  }else body.innerHTML={case:nvsCaseView,survey:nvsSurveyView,design:nvsDesignView,cost:nvsCostView,operations:nvsOperationsView,documents:nvsDocumentsView}[tab]();
+  }else body.innerHTML={handoff:nvsHandoffView,case:nvsCaseView,survey:nvsSurveyView,design:nvsDesignView,cost:nvsCostView,operations:nvsOperationsView,documents:nvsDocumentsView}[tab]();
 }
 function nvsOpen(tab='mii'){
+  if(!nvsOverlay&&!nvsRequireValidPendingInput())return false;
   if(nvsMiiSession?.host)nvsMiiAssertSettled();nvsView.tab=tab;
   if(nvsOverlay){nvsRender();return;}
-  nvsSyncBasic();nvsEnsure();const el=document.createElement('div');el.className='nvsOverlay';el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-label','NVS案件管理');el._owner=project;el._returnFocus=document.activeElement;nvsOverlay=el;document.body.appendChild(el);nvsRender();
-  const edit=e=>{if(nvsPlotEdit(e))return;const t=e.target,path=t.dataset.nvsPath;if(t.dataset.nvsPhotoName&&el._owner===project){const ph=project.photos[t.dataset.nvsPhotoName];if(ph){ph.name=t.value;markDirty();}return;}if(t.dataset.nvsPhotoRole&&el._owner===project){const row=nvsValue(t.dataset.nvsPhotoRole);if(row){row.photoRoles=row.photoRoles||{};row.photoRoles[t.dataset.photoId]=t.value;markDirty();}return;}if(!path||el._owner!==project)return;let value=t.type==='checkbox'?t.checked:t.multiple?[...t.selectedOptions].map(o=>o.value):t.type==='number'?(t.value===''?null:Number(t.value)):t.value;
-    if(t.type==='number'&&value!=null&&(!Number.isFinite(value)||/(quantity|bodyQty|installQty|qty|cameraCount)$/.test(path)&&value<0)){t.setCustomValidity('0以上の有限数を入力してください');t.reportValidity();return;}t.setCustomValidity?.('');nvsSet(path,value);const areaMatch=path.match(/^nvs\.areas\.(\d+)\./);if(areaMatch){const row=project.nvs.areas[Number(areaMatch[1])],entry=t.closest('[data-nvs-area-id]');if(entry&&row){entry.querySelector('[data-nvs-area-name]').textContent=nvsAreaDisplayName(row);entry.querySelector('[data-nvs-area-status]').textContent=SURVEY_STATUS[row.status]||'未確認';}}if(/^nvs\.assets\.\d+\.quantity$/.test(path)){const row=nvsValue(path.split('.').slice(0,-1).join('.'));row.importQuantityPending=false;}markDirty();
+  nvsSyncBasic();nvsEnsure();const el=document.createElement('div');el.className='nvsOverlay';el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-label','提案資料');el._owner=project;el._returnFocus=document.activeElement;nvsOverlay=el;document.body.appendChild(el);nvsRender();
+  const edit=e=>{if(nvsPlotEdit(e))return;const t=e.target,path=t.dataset.nvsPath;if(t.dataset.nvsPhotoName&&el._owner===project){const ph=project.photos[t.dataset.nvsPhotoName];if(ph){ph.name=t.value;markDirty();}return;}if(t.dataset.nvsPhotoRole&&el._owner===project){const row=nvsValue(t.dataset.nvsPhotoRole);if(row&&nvsChooseExistingPhotoRole(t.dataset.nvsPhotoRole,row,t.dataset.photoId,t.value)){markDirty();nvsRefreshPhotoGroup(t.dataset.nvsPhotoRole,t.dataset.photoId);}return;}if(!path||el._owner!==project)return;let value=t.type==='checkbox'?t.checked:t.multiple?[...t.selectedOptions].map(o=>o.value):t.type==='number'?(t.value===''?null:Number(t.value)):t.value;
+    if(t.type==='number'&&value!=null&&(!Number.isFinite(value)||/(quantity|bodyQty|installQty|qty|cameraCount)$/.test(path)&&value<0)){t.setCustomValidity('0以上の有限数を入力してください');t.reportValidity();return;}t.setCustomValidity?.('');if(t.required&&t.value===''){t.reportValidity();return;}nvsSet(path,value);const areaMatch=path.match(/^nvs\.areas\.(\d+)\./);if(areaMatch){const row=project.nvs.areas[Number(areaMatch[1])],entry=t.closest('[data-nvs-area-id]');if(entry&&row){entry.querySelector('[data-nvs-area-name]').textContent=nvsAreaDisplayName(row);entry.querySelector('[data-nvs-area-status]').textContent=SURVEY_STATUS[row.status]||'未確認';}}if(/^nvs\.assets\.\d+\.quantity$/.test(path)){const row=nvsValue(path.split('.').slice(0,-1).join('.'));row.importQuantityPending=false;}markDirty();
     if(nvsView.tab==='cost'){const totals=NEXT_PURE.calcTotals(project),cards=el.querySelectorAll('.nvsSummary strong'),pending=nvsUnpriced().length;const notice=el.querySelector('[data-nvs-cost-notice]');if(cards[0])cards[0].textContent='¥'+totals.total.toLocaleString();if(cards[1])cards[1].textContent=pending+'件';if(notice)notice.textContent=nvsCostNotice(pending);}
     if(path==='meta.title')el.querySelector('h2').textContent=value||'新しい案件';if(path==='meta.customer')el.querySelector('[data-nvs-customer]').textContent=value||'顧客未登録';if(path==='nvs.profile.stage')el.querySelectorAll('[data-nvs-stage]').forEach(label=>label.textContent=value);
     if(nvsView.tab==='design'&&(path.startsWith('nvs.topology.')||path.startsWith('nvs.assets.'))){nvsRefreshDesignReferences(el);if(e.type==='change'){const graph=el.querySelector('.nvsGraph');if(graph)graph.innerHTML=nvsGraphSvg(project,nvsView.scenario,true);}}
@@ -8736,10 +8847,28 @@ function nvsOpen(tab='mii'){
   el.addEventListener('input',edit);el.addEventListener('change',edit);
   el.addEventListener('toggle',e=>{const entry=e.target;if(el._owner!==project||!entry.matches?.('details[data-nvs-area-id]'))return;const ids=nvsOpenAreaIds(),id=entry.dataset.nvsAreaId;if(entry.open)ids.add(id);else ids.delete(id);},true);
   el.addEventListener('click',e=>{const b=e.target.closest('[data-nvs-action]');if(!b||el._owner!==project)return;void nvsAction(b.dataset.nvsAction,b.dataset.nvsArg||'').catch(error=>toast(error.message,'warn'));});
-  el._key=e=>{if(document.querySelector('.modalOverlay.show')||document.querySelector('.nvsReportOverlay,.nvsMiiOverlay:not(.nvsMiiEmbedded)')||(e.key==='Escape'&&el.querySelector('.nvsMiiMore[open]')))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();e.stopPropagation();void nvsSave();}else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();try{nvsClose();}catch(error){toast(error.message,'warn');}}else trapNotesFocus(e,el);};document.addEventListener('keydown',el._key,true);
+  el._key=e=>{if(e.isComposing||e.keyCode===229||e.defaultPrevented)return;if(document.querySelector('.modalOverlay.show')||document.querySelector('.nvsReportOverlay,.nvsMiiOverlay:not(.nvsMiiEmbedded)')||(e.key==='Escape'&&el.querySelector('.nvsMiiMore[open]')))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();e.stopPropagation();void nvsSave();}else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();void nvsRequestClose().catch(error=>toast(error.message,'warn'));}else trapNotesFocus(e,el);};document.addEventListener('keydown',el._key,true);
   let drag=null;el.addEventListener('pointerdown',e=>{const node=e.target.closest('[data-nvs-node]');if(!node)return;const svg=node.closest('svg'),g=nvsEnsure().topology[nvsView.scenario],item=g.nodes.find(x=>x.id===node.dataset.nvsNode);if(!item)return;drag={item,svg,node,owner:project};node.setPointerCapture?.(e.pointerId);e.preventDefault();});
   el.addEventListener('pointermove',e=>{if(!drag||drag.owner!==project)return;const vb=drag.svg.viewBox.baseVal,point=drag.svg.createSVGPoint();point.x=e.clientX;point.y=e.clientY;const local=point.matrixTransform(drag.svg.getScreenCTM().inverse());drag.item.x=Math.max(0,Math.min(vb.width-190,local.x-90));drag.item.y=Math.max(0,Math.min(vb.height-90,local.y-40));drag.node.setAttribute('transform',`translate(${drag.item.x},${drag.item.y})`);});
   const end=()=>{if(!drag)return;drag=null;markDirty();const graph=el.querySelector('.nvsGraph');if(graph)graph.innerHTML=nvsGraphSvg(project,nvsView.scenario,true);};el.addEventListener('pointerup',end);el.addEventListener('pointercancel',end);el.querySelector('[data-nvs-action="close"]').focus();
+}
+// 正常な変更は即時反映済み。不正な未確定入力だけ、閉じる前に取消の意思を確認する。
+async function nvsRequestClose(){
+  const el=nvsOverlay,owner=project;
+  if(!el||el._owner!==owner||el._closePending)return false;
+  if(nvsMiiSession?.host){nvsMiiAssertSettled();nvsMiiAssertPhotosSettled();}
+  const field=el.querySelector('[data-nvs-path]:invalid');
+  if(field){
+    el._closePending=true;
+    try{
+      const discard=await confirmModal('入力中の値を破棄して戻りますか',
+        'エラーのある入力中の値は保存されません。案件に記録済みの値で配置図へ戻ります。正常に反映した他の変更は保持します。',
+        {danger:true,okLabel:'未確定値を破棄して戻る',cancelLabel:'入力を続ける'});
+      if(el!==nvsOverlay||owner!==project)return false;
+      if(!discard){if(field.isConnected){field.focus({preventScroll:true});field.scrollIntoView({block:'nearest'});}return false;}
+    }finally{el._closePending=false;}
+  }
+  nvsClose();return true;
 }
 function nvsClose(){const el=nvsOverlay;if(!el)return;if(nvsMiiSession?.host){nvsMiiAssertSettled();nvsMiiAssertPhotosSettled();if(nvsMiiSession.owner===project)nvsMiiSession.flush();nvsMiiSession.dispose();}document.removeEventListener('keydown',el._key,true);el.remove();nvsOverlay=null;refreshAll();if(el._returnFocus?.isConnected)el._returnFocus.focus();}
 function nvsAdd(kind){const n=nvsEnsure(),base={id:nvsId()};if(kind==='meetings')n.meetings.push({...base,date:nvsToday(),participants:'',note:'',nextAction:''});
@@ -8752,14 +8881,14 @@ function nvsAdd(kind){const n=nvsEnsure(),base={id:nvsId()};if(kind==='meetings'
   const field=index>=0?nvsOverlay?.querySelector('[data-nvs-path^="nvs.'+kind+'.'+index+'."]'):null;
   if(field){field.focus({preventScroll:true});field.scrollIntoView({block:'nearest',behavior:'smooth'});}
 }
-async function nvsAction(action,arg){if(nvsMiiSession?.host&&!action.startsWith('mii-'))nvsMiiAssertSettled();const n=nvsEnsure(),owner=project;
+async function nvsAction(action,arg){if(nvsMiiSession?.host&&!action.startsWith('mii-'))nvsMiiAssertSettled();if(!['close','plot'].includes(action)&&!nvsRequireValidPendingInput())return;const n=nvsEnsure(),owner=project;
   if(action==='plot-review'){nvsPlotReview();return;}
   if(action==='plot-apply'){nvsPlotApply();return;}
   if(action==='plot-undo'){nvsPlotUndoApply();return;}
   if(action==='plot-cancel'){nvsPlotDraft=null;nvsRender();return;}
   if(action==='mii-design'){await nvsOpenMii(project,{scenario:nvsView.scenario});return;}
   if(action==='mii-open'||action==='mii-preview'){await nvsOpenMii(project,{preview:action==='mii-preview'});return;}
-  if(action==='close'||action==='plot'){nvsClose();return;}
+  if(action==='close'||action==='plot')return nvsRequestClose();
   if(action==='tab'){
     nvsView.tab=arg;nvsRender();
     // ナビの再描画でフォーカスが背景へ抜けないよう、切替先のボタンへ戻す。
@@ -8783,8 +8912,21 @@ async function nvsAction(action,arg){if(nvsMiiSession?.host&&!action.startsWith(
   if(action==='copy-graph'){const choice=await promptModal('コピー元の番号を入力\n1: 現状構成\n2: 提案構成\n3: 完成構成','1');if(choice==null)return;const source=['current','proposed','asbuilt'][Number(choice)-1];if(!NVS_SCENARIOS[source]||source===nvsView.scenario)throw new Error('別の構成を指定してください');if(!await confirmModal('構成をコピー',NVS_SCENARIOS[nvsView.scenario]+'構成を置き換えます。必要な状態は先に版として保存してください。',{okLabel:'コピー'}))return;if(project!==owner)return;n.topology[nvsView.scenario]=nvsClone(n.topology[source]);}
   if(action==='jump-device'){const a=nvsAssets().find(x=>x.key===arg);if(a?.floor){nvsClose();ui.floorIdx=project.floors.indexOf(a.floor);setMode('select',null);selectObj('device',a.source,'record');revealSelectedDevice();}return;}
   if(action==='photo'){nvsPickPhotos(arg);return;}
-  if(action==='unlink-photo'){const [path,index]=arg.split('|');nvsValue(path)?.photoIds.splice(Number(index),1);}
-  if(action==='reuse-photo'){const row=nvsValue(arg),list=Object.entries(project.photos);if(!list.length)throw new Error('登録済み写真がありません');const choice=await promptModal('写真番号を入力\n'+list.map(([id,p],i)=>`${i+1}: ${p.name||id}`).join('\n'),'1');if(choice==null)return;const selected=list[Number(choice)-1];if(!selected)throw new Error('一覧の番号を指定してください');if(project!==owner)return;row.photoIds=row.photoIds||[];if(!row.photoIds.includes(selected[0]))row.photoIds.push(selected[0]);}
+  if(action==='prefer-photo'){const [path,id]=JSON.parse(arg),row=nvsValue(path);if(row&&nvsChooseExistingPhotoRole(path,row,id,row.photoRoles?.[id])){markDirty();nvsRefreshPhotoGroup(path,id);}return;}
+  if(action==='unlink-photo'){
+    const [path,index]=arg.split('|'),row=nvsValue(path);
+    // 役割を持たない旧エリアの2枚は保存順が唯一の手掛かり。外す行だけ位置を確定する。
+    if(path.startsWith('nvs.areas.')&&row){
+      const ids=row.photoIds||[],roles=row.photoRoles||{};
+      // 旧記録の先頭2枚は従来から資料の2欄に出ていた。解除前にその位置だけ確定し、追加分は推測しない。
+      if(ids.length>=2&&!Object.keys(roles).length&&!row.miiPhotoSlotsExplicit)
+        row.photoRoles={[ids[0]]:'設置箇所',[ids[1]]:'画角イメージ'};
+      if(ids.some(id=>['設置箇所','画角イメージ'].includes(row.photoRoles?.[id])))row.miiPhotoSlotsExplicit=true;
+    }
+    const [removed]=row?.photoIds?.splice(Number(index),1)||[];
+    if(removed&&row.photoRoles)delete row.photoRoles[removed];
+  }
+  if(action==='reuse-photo'){const row=nvsValue(arg),list=Object.entries(project.photos);if(!list.length)throw new Error('登録済み写真がありません');const choice=await promptModal('写真番号を入力\n'+list.map(([id,p],i)=>`${i+1}: ${p.name||id}`).join('\n'),'1');if(choice==null)return;const selected=list[Number(choice)-1];if(!selected)throw new Error('一覧の番号を指定してください');if(project!==owner)return;row.photoIds=row.photoIds||[];if(!row.photoIds.includes(selected[0])){row.photoIds.push(selected[0]);nvsAssignAreaPhotoRole(arg,row,selected[0]);}}
   if(action==='snapshot'){const name=await promptModal('この版の名前',n.profile.stage+' '+nvsToday());if(name==null||project!==owner)return;nvsSnapshot(name);toast('この時点の案件を版として残しました','ok');}
   if(action==='milestone-save'){const m=n.milestones[Number(arg)];if(m)downloadBlob('NVS_'+m.label.replace(/[\\/:*?"<>|]/g,'_')+'.json',new Blob([JSON.stringify(m.snapshot,null,2)],{type:'application/json'}));return;}
   if(action==='milestone-preview'){const m=n.milestones[Number(arg)];if(!m)return;const old=buildProjectFromData(m.snapshot);const prior=NEXT_PURE.calcTotals(old),current=NEXT_PURE.calcTotals(project);const text=`${m.label}\n記録日時: ${m.date}\n記録時: ${nvsAssets(old).reduce((s,a)=>s+a.quantity,0)}点 / ¥${prior.total.toLocaleString()}\n現在: ${nvsAssets().reduce((s,a)=>s+a.quantity,0)}点 / ¥${current.total.toLocaleString()}\n\n${nvsMilestoneAssetChanges(old,project).join('\n')}\n\n記録時の資料を開きます。現在の案件は変更しません。`;if(!await confirmModal('保存版を確認',text,{okLabel:'保存版の資料を開く',multiline:true}))return;if(project!==owner)return;const kind=({'商談前':'pre','商談':'proposal','調査':'survey','提案・見積':'proposal','受注・施工':'work','完成':'completion','アフター':'aftercare'})[m.stage]||'pre';await nvsReportPreview(kind,old,{sourceVersion:{label:m.label,date:m.date}});return;}
@@ -8809,7 +8951,49 @@ async function nvsAction(action,arg){if(nvsMiiSession?.host&&!action.startsWith(
     button?.focus({preventScroll:true});
   }
 }
-function nvsPickPhotos(path){const owner=project,row=nvsValue(path),input=document.createElement('input');input.type='file';input.accept='image/*';input.multiple=true;input.onchange=async()=>{try{for(const file of input.files){const src=await readLocalFile(file),img=new Image();await new Promise((res,rej)=>{img.onload=res;img.onerror=()=>rej(new Error('画像を読み込めません'));img.src=src;});const out=shrinkImageToDataUrl(img,1600,.85);if(project!==owner||nvsValue(path)!==row)return;const id=nvsId();owner.photos[id]={src:out.dataUrl,name:file.name,w:out.w,h:out.h};row.photoIds=row.photoIds||[];row.photoIds.push(id);markDirty();}if(project===owner)nvsRender();}catch(e){toast(e.message,'warn');}};input.click();}
+// 写真の明示操作だけを既存の手入力印へ記録する。読込だけで旧データを分類し直さない。
+function nvsChooseExistingPhotoRole(path,row,id,role,p=project){
+  if(!(row.photoIds||[]).includes(id)||typeof role!=='string')return false;
+  const previous=row.photoRoles?.[id],outputRoles=['設置箇所','画角イメージ'];
+  row.photoRoles={...row.photoRoles,[id]:role};
+  if(path.startsWith('nvs.areas.')){
+    if([previous,role].some(value=>outputRoles.includes(value)))row.miiPhotoSlotsExplicit=true;
+    // 既存形式は同じ用途の先頭写真を使う。今回選んだ写真だけを同用途の先頭へ移す。
+    if(outputRoles.includes(role)){
+      const index=row.photoIds.indexOf(id),first=row.photoIds.findIndex(other=>other!==id&&row.photoRoles[other]===role);
+      if(first>=0&&first<index){row.photoIds.splice(index,1);row.photoIds.splice(first,0,id);}
+    }
+    nvsMarkAreaPhotosManual(row,p);
+  }
+  return true;
+}
+function nvsAreaUsesDrawingPhoto(row,p=project){
+  const cameras=p.floors.flatMap(f=>f.devices.filter(isCameraDevice).map(d=>({key:nvsDeviceKey(f,d)})));
+  const linked=cameras.filter(({key})=>(row.assetKeys||[]).includes(key));
+  const source=linked.length===1&&p.nvs?.basicSync?.areas?.[linked[0].key];
+  return !!(source&&source.id===row.id&&!source.external);
+}
+function nvsPhotoPreference(path,row,id){
+  const role=row.photoRoles?.[id],index=['設置箇所','画角イメージ'].indexOf(role);
+  if(!path.startsWith('nvs.areas.')||index<0||index===0&&nvsAreaUsesDrawingPhoto(row)||nvsMiiPhotoSlotIds(row)[index]===id)return '';
+  return nvsButton('この写真を'+role+'に使う','prefer-photo',JSON.stringify([path,id]));
+}
+function nvsRefreshPhotoGroup(path,id){
+  const group=[...(nvsOverlay?.querySelectorAll('[data-nvs-photo-group]')||[])].find(el=>el.dataset.nvsPhotoGroup===path);
+  if(!group)return;
+  group.outerHTML=nvsPhotos(path);
+  const field=[...(nvsOverlay?.querySelectorAll('[data-nvs-photo-role]')||[])].find(el=>el.dataset.nvsPhotoRole===path&&el.dataset.photoId===id);
+  field?.focus({preventScroll:true});
+}
+function nvsAssignAreaPhotoRole(path,row,id){
+  if(!path.startsWith('nvs.areas.')||!row.photoRoles)return;
+  if(!row.miiPhotoSlotsExplicit&&!Object.values(row.photoRoles).some(role=>role==='設置箇所'||role==='画角イメージ'))return;
+  // 一方の役割が残る旧エリアでは、再登録した写真を空いた欄へ戻す。
+  const assigned=new Set(Object.values(row.photoRoles));
+  const free=['設置箇所','画角イメージ'].find(role=>!assigned.has(role));
+  if(free)row.photoRoles[id]=free;
+}
+function nvsPickPhotos(path){const owner=project,row=nvsValue(path),input=document.createElement('input');input.type='file';input.accept='image/*';input.multiple=true;input.onchange=async()=>{try{for(const file of input.files){const src=await readLocalFile(file),img=new Image();await new Promise((res,rej)=>{img.onload=res;img.onerror=()=>rej(new Error('画像を読み込めません'));img.src=src;});const out=shrinkImageToDataUrl(img,1600,.85);if(project!==owner||nvsValue(path)!==row)return;const id=nvsId();owner.photos[id]={src:out.dataUrl,name:file.name,w:out.w,h:out.h};row.photoIds=row.photoIds||[];row.photoIds.push(id);nvsAssignAreaPhotoRole(path,row,id);markDirty();}if(project===owner)nvsRender();}catch(e){toast(e.message,'warn');}};input.click();}
 function nvsRepoint(from,to){const n=nvsEnsure();for(const row of [...n.areas,...n.diagnostics,...n.records,...Object.keys(NVS_SCENARIOS).map(k=>n.topology[k]).flatMap(g=>g.nodes)])if(row.assetKeys)row.assetKeys=[...new Set(row.assetKeys.map(k=>k===from?to:k))];}
 // 配置と対応付けだけをUndo/Redoする。後から書いた調査内容・案件概要は巻き戻さない。
 function nvsRestorePlacementHistory(snap){
@@ -8995,6 +9179,7 @@ function nvsSyncBasic(p=project){
     'system.poeLocation':locations(d=>d.type==='hub'),'system.serverLocation':locations(d=>d.type==='recorder')};
   for(const [path,value] of Object.entries(fields)){const [group,key]=path.split('.');s.fields[group]||={};update(n[group],key,value,s.fields[group]);}
   const cameraKeys=new Set(placed.filter(({d})=>isCameraDevice(d)).map(x=>x.key));
+  const priorAreaIndex=new Map(n.areas.map((row,index)=>[row.id,index]));
   for(const [key,saved] of Object.entries(s.areas)){
     if(cameraKeys.has(key)||saved.external)continue;
     const row=n.areas.find(a=>a.id===saved.id);if(!row)continue;
@@ -9005,14 +9190,19 @@ function nvsSyncBasic(p=project){
       if(field==='status')return value==='todo';
       return value==null||value===''||(Array.isArray(value)&&!value.length);
     });
-    if(untouched){n.areas=n.areas.filter(a=>a!==row);saved.autoRemoved=true;}
+    if(untouched){saved.autoRemovedIndex=priorAreaIndex.get(row.id);n.areas=n.areas.filter(a=>a!==row);saved.autoRemoved=true;}
   }
   for(const {f,d,key} of placed.filter(({d})=>isCameraDevice(d))){
     let saved=s.areas[key],row=saved?n.areas.find(a=>a.id===saved.id):n.areas.find(a=>(a.assetKeys||[]).includes(key));
     // 既存の調査行を重複作成せず、削除した自動行も勝手に復活させない。
     if(!saved&&row){s.areas[key]={id:row.id,external:true};continue;}
     if(saved?.external||saved&&!row&&!saved.autoRemoved)continue;
-    if(!row){row={id:saved?.id||nvsId(),name:'',floorId:'',status:'todo',grade:'',current:'',demo:'',position:'',height:'',count:'',policy:'',assetKeys:[],photoIds:[]};n.areas.push(row);s.areas[key]=saved={id:row.id,fields:{}};}
+    if(!row){row={id:saved?.id||nvsId(),name:'',floorId:'',status:'todo',grade:'',current:'',demo:'',position:'',height:'',count:'',policy:'',assetKeys:[],photoIds:[]};
+      // 削除をUndoした自動行は元の保存順へ戻す。既存行・手入力AREAのIDや並びは変えない。
+      const restoreIndex=saved?.autoRemoved&&Number.isSafeInteger(saved.autoRemovedIndex)?saved.autoRemovedIndex:n.areas.length;
+      n.areas.splice(Math.max(0,Math.min(restoreIndex,n.areas.length)),0,row);s.areas[key]=saved={...saved,id:row.id,fields:{}};}
+    // 復帰済みの旧保存行にも残る自動除去の印を片付け、以後の手動削除を尊重する。
+    delete saved.autoRemoved;delete saved.autoRemovedIndex;
     const label=deviceLabels(f)[d.id]||'カメラ';
     const values={name:d.location||d.annotation||f.name+' '+label,floorId:f.id,position:d.location||'',count:'1台',assetKeys:[key],photoIds:d.photoId&&p.photos?.[d.photoId]?[d.photoId]:[]};
     for(const [field,value] of Object.entries(values))update(row,field,value,saved.fields);
@@ -9020,7 +9210,7 @@ function nvsSyncBasic(p=project){
 }
 function nvsBasicCard(){
   const n=nvsEnsure(),total=NEXT_PURE.calcTotals(project),cameras=project.floors.reduce((sum,f)=>sum+f.devices.filter(isCameraDevice).length,0);
-  return nvsCard('図面・大概算の入力と連動',`<p class="nvsHint">案件名・顧客名・提案メモ・機器台帳・費用は共通データです。図面のカメラから調査エリア・設置場所・機器写真、見積の担当者から主担当を自動入力します。調査側で変更した項目は保持します。</p><p>配置カメラ ${cameras}台 / 全機器 ${project.floors.reduce((s,f)=>s+f.devices.length,0)}台 / 大概算（税込） ¥${total.total.toLocaleString()}</p><p class="nvsHint">診断評価・実測結果・録画日数など、入力から判断できない情報は未入力のままです。配線からの系統図作成は「設計」で候補を確認して行えます。</p><div class="nvsActions">${nvsButton('配線から系統図を作る','plot-review','',true)}${nvsButton('大概算と対象範囲を確認','tab','cost')}</div>`);
+  return nvsCard('図面・大概算の入力と連動',`<p class="nvsHint">案件名・顧客名・提案メモ・機器台帳・費用は共通データです。図面のカメラから調査エリア・設置場所・機器写真、見積の担当者から主担当を自動入力します。調査側で変更した項目は保持します。</p><p>配置カメラ ${cameras}台 / 全機器 ${project.floors.reduce((s,f)=>s+f.devices.length,0)}台 / 大概算（税込） ¥${total.total.toLocaleString()}</p><p class="nvsHint">診断評価・実測結果・録画日数など、入力から判断できない情報は未入力のままです。配線からの系統図作成は下の「配線から系統図を作る」で候補を確認して行えます。</p><div class="nvsActions">${nvsButton('配線から系統図を作る','plot-review','',true)}${nvsButton('大概算と対象範囲を確認','tab','cost')}</div>`);
 }
 function nvsPlotAssets(p){return nvsAssets(p).filter(a=>a.floor).map(a=>({...a,label:a.floor.name+' / '+(deviceLabels(a.floor)[a.source.id]||'')+' '+(a.source.annotation||a.name)}));}
 function nvsPlotWireKey(f,w){return f.id+':'+w.id;}
@@ -9143,12 +9333,27 @@ function nvsPlotApply(){
   n.topology[d.scenario]=result.graph;nvsPlotUndo={owner:project,scenario:d.scenario,before,after:JSON.stringify(result.graph),wires:wires.map(x=>({...x,after:JSON.stringify(x.w.connection||null)}))};
   nvsPlotDraft=null;markDirty();nvsRender();nvsOverlay.querySelector('.nvsBody').scrollTop=0;toast(`系統図に反映しました（追加 ${result.added} / 更新 ${result.updated}）。機器・接続は引き続き編集できます。`,'ok');
 }
+// 図面から削除済みで、接続のない未編集の自動生成ブロックだけを提案書から外す。
+// 案件内の接続図は削除せず、交換履歴や手動編集の判断材料として保持する。
+function nvsProposalStaleBlocks(p,graph){
+  if(!graph?.plotSync?.nodes)return new Set();
+  const live=new Set(nvsAssets(p).map(a=>a.key)),connected=new Set(graph.links.flatMap(l=>[l.from,l.to]));
+  const tracked=new Map(Object.values(graph.plotSync.nodes).map(row=>[row.id,row]));
+  return new Set(graph.nodes.filter(node=>{
+    const prior=tracked.get(node.id);
+    return prior&&!prior.manual&&!(prior.manualFields||[]).length&&!connected.has(node.id)&&
+      (node.assetKeys||[]).length>0&&node.assetKeys.every(key=>!live.has(key))&&
+      Object.entries(prior.value||{}).every(([key,value])=>JSON.stringify(node[key])===JSON.stringify(value));
+  }).map(node=>node.id));
+}
 function nvsPlotStatus(p=project,scenario=nvsView.scenario){
   const g=nvsEnsure(p).topology[scenario],missing=nvsMissingWireLinks(p,scenario);
   const warning=missing.length?'<p class="nvsNotice">施工配線が見つからない接続 '+missing.length+'件。旧接続を保持しています。接続一覧で対応配線を再設定するか、不要な接続を削除してください。</p>':'';
+  const stale=scenario==='proposed'?nvsProposalStaleBlocks(p,g):new Set();
+  const staleNotice=stale.size?'<p class="nvsNotice">交換前の自動生成ブロック '+stale.size+'件は提案書に含めず、案件には残しています。不要なら下の「接続ブロック」から削除してください。</p>':'';
   if(!g.plotSync)return warning;
   const disconnected=g.nodes.filter(n=>!g.links.some(l=>l.from===n.id||l.to===n.id));
-  return warning+(g.plotSync.signature!==nvsPlotSignature(p)?'<p class="nvsNotice">図面の配置・配線が生成時から変わっています。「配線から系統図を作る」で変更を確認・反映してください。</p>':'')+(disconnected.length?`<p class="nvsHint">接続が未設定の機器: ${disconnected.map(n=>escapeHtml(nvsNodeInfo(n,p).name)).join(' / ')}。接続一覧から追加・修正できます。</p>`:'');
+  return warning+staleNotice+(g.plotSync.signature!==nvsPlotSignature(p)?'<p class="nvsNotice">図面の配置・配線が生成時から変わっています。「配線から系統図を作る」で変更を確認・反映してください。</p>':'')+(disconnected.length?`<p class="nvsHint">接続が未設定の機器: ${disconnected.map(n=>escapeHtml(nvsNodeInfo(n,p).name)).join(' / ')}。接続一覧から追加・修正できます。</p>`:'');
 }
 function nvsPlotUndoApply(){
   const u=nvsPlotUndo;if(!u||u.owner!==project||u.scenario!==nvsView.scenario)throw new Error('取り消せる系統図生成がありません');
@@ -9342,7 +9547,8 @@ function nvsMiiTopologyNotesSource(source){
           const body=wrapRaw(String(node.detail),ctx).map(row=>({...row,role:'detail',nodeId:node.id}));
           let cursor=0,continued=false;
           while(cursor<body.length){
-            const caption=String(node.name||'名称未設定')+' ['+String(node.id||'ID未設定')+']'+(continued?'（続き）':'');
+            // 構成ノードの内部IDは顧客資料に出さず、フロア・機器番号付き名称で照合する。
+            const caption=String(node.name||'名称未設定')+(continued?'（続き）':'');
             const heading=wrapRaw(caption,ctx,true).map(row=>({text:row.text,role:'name',nodeId:node.id}));
             const location=wrapRaw('設置場所: '+String(node.location||'未記入'),ctx).map(row=>({text:row.text,role:'location',nodeId:node.id}));
             const identification=[...heading,...location];
@@ -9368,7 +9574,7 @@ function nvsMiiTopologyNotesSource(source){
         const flush=()=>{if(rows.length){pages.push({kind:WARNING,rows});rows=[];}if(pages.length+details.pages.length>PAGE_LIMIT)throw new Error('確認事項と詳細の続頁は'+PAGE_LIMIT+'ページ以内に整理してください。');};
         for(const item of items){
           const heading=wrapRaw('接続 '+item.index+' / '+item.kind+'：'+item.label,ctx,true).map(row=>({text:row.text,role:'name'}));
-          const body=wrapRaw(warning.scenario+'構成の元の施工配線 '+item.missing+' / '+item.total+' 区間が見つかりません。旧接続を保持して表示しています。\n撤去・変更内容と接続先を確認し、構成図の対応配線を更新してください。',ctx).map(row=>({text:row.text,role:'notice'}));
+          const body=wrapRaw(item.notice||warning.scenario+'構成の元の施工配線 '+item.missing+' / '+item.total+' 区間が見つかりません。旧接続を保持して表示しています。\n撤去・変更内容と接続先を確認し、構成図の対応配線を更新してください。',ctx).map(row=>({text:row.text,role:'notice'}));
           if(heading.length>=ROWS-1)throw new Error('接続の機器名だけで1ページを超えています。表示名を整理してください。');
           let cursor=0;while(cursor<body.length){
             if(rows.length&&ROWS-rows.length<heading.length+Math.min(2,body.length-cursor))flush();
@@ -9602,7 +9808,7 @@ function nvsMiiInstallImport(session,{readonly=session.owner!==project}={}){
       const destination=NVS_SCENARIOS[request.scenario]||request.scenario;
       const details='ファイル: '+file.name+'\n顧客: '+String(raw.customer||'未入力')+'\n拠点: '+String(raw.site||'未入力')+'\n対象構成: '+destination+'\n\n'+
         (readonly?'この保存版の作業コピーのMII入力を置き換えます。保存原本と現在の案件は変更しません。':
-          '現在の顧客・調査記録・選択中の構成を置き換えます。図面と既存の費用機器は残ります。置換直前の状態を案件内に「MII JSON読込前」として残します。')+'\n構成と台帳の対応は読込後に「設計」で確認してください。';
+          '現在の顧客・調査記録・選択中の構成を置き換えます。図面と既存の費用機器は残ります。置換直前の状態を案件内に「MII JSON読込前」として残します。')+'\n構成と台帳の対応は読込後に「詳細な記録 → 接続構成」で確認してください。';
       const accepted=await confirmModal('MII入力をJSONに置き換えますか？',details,{okLabel:'JSONに置換'});
       assertCurrent(request);
       if(!accepted){report('MII互換JSONの読込を取り消しました。現在の入力は変更していません。');return false;}
@@ -9653,7 +9859,7 @@ function nvsMiiTopologyQuantitySource(source){
     const value=window.__nvsMiiTopologyQuantity?.(node);
     return typeof value==='number'&&Number.isFinite(value)?value:undefined;
   }
-  function nvsMiiNodeQuantityHelp(locked){return locked?'台帳と連動しています。数量は「設計」の機器台帳で変更します。図面に配置した機器は、配置図で追加・削除してください。':'同じ種類・同じ接続先の機器は1ブロックにまとめ、数量で表します。例：カメラ ×20台';}
+  function nvsMiiNodeQuantityHelp(locked){return locked?'台帳と連動しています。数量は「詳細な記録 → 接続構成」の共通機器台帳から配置情報を開いて変更します。図面に配置した機器は、配置図で追加・削除してください。':'同じ種類・同じ接続先の機器は1ブロックにまとめ、数量で表します。例：カメラ ×20台';}
   function nvsMiiNodeQuantityHtml(node){
     const value=nvsMiiNodeQuantity(node),locked=value!==undefined,qty=locked?value:Math.max(1,Number(node.qty)||1);
     return '<label>数量<input id="easyNodeQty" type="number" min="1" max="999" value="'+qty+'" aria-describedby="nvsMiiNodeQtyHelp"'+(locked?' readonly aria-readonly="true"':'')+'></label><div id="nvsMiiNodeQtyHelp" class="topoEasyHint techHint">'+nvsMiiNodeQuantityHelp(locked)+'</div>';
@@ -9684,6 +9890,206 @@ function nvsMiiTopologyQuantitySource(source){
   return source;
 }
 
+// 提案資料の入力だけを整理する。原版の帳票描画・候補辞書・入力イベントは変えない。
+// 表示用の参照情報だけを作る。自由記述や保存済みの構成詳細には書き込まない。
+function nvsMiiPlacementModels(p,keys=null){
+  const allowed=keys===null?null:new Set(keys);
+  return p.floors.flatMap(f=>f.devices.filter(d=>!allowed||allowed.has(nvsDeviceKey(f,d))).map(d=>({
+    key:nvsDeviceKey(f,d),label:f.name+' / '+(deviceLabels(f)[d.id]||p.pricing.devices[d.type]?.label||'機器'),
+    location:d.location||d.annotation||f.name,model:d.model||''
+  })));
+}
+function nvsMiiNodePlacementModels(p,scenario,node){
+  const binding=nvsMiiTopologyBinding(p,scenario,node);
+  return binding?nvsMiiPlacementModels(p,binding.assetKeys):[];
+}
+function nvsMiiProposalFormSource(source){
+  // 日付は必要な案件だけ記入する。原版の文字数・参照整合性の検査は残す。
+  for(const text of ["pushEmpty(e,'実施日',project.surveyDate);","pushEmpty(e,'作成日',project.createdDate);"]){
+    if(!source.includes(text))throw new Error('提案資料の日付入力を確認できません');
+    source=source.replace(text,'');
+  }
+  // 入力欄の補足をbindSystemの生成時に置く。描画後の高さ変更でスクロール位置を動かさない。
+  const oldBaseHint='システム構成・ネットワーク接続図の内容は、下の「3. 構成図の自動生成用設定」で変更できます。';
+  if(source.split(oldBaseHint).length!==2)throw new Error('提案資料の構成案内が見つかりません');
+  source=source.replace(oldBaseHint,'システム構成・ネットワーク接続図の内容は「構成・条件」で確認・変更できます。');
+  const cameraLabel='<label>カメラ台数<input id="cameraCount" type="number" min="0" value="${esc(ss.cameraCount??0)}"></label>';
+  if(!source.includes(cameraLabel))throw new Error('構成案のカメラ台数の入力欄が見つかりません');
+  source=source.replace(cameraLabel,cameraLabel.replace('カメラ台数','構成案のカメラ台数（資料用）').replace('<input ','<input title="資料の構成案で計画する台数です。図面の配置台数・見積数量は変更しません。" ').replace('</label>','<span class="nvsProposalCountHint">図面の配置台数・見積数量は変更しません。</span></label>'));
+  const jump='v1929CloseIssues();if(!target)return;target.scrollIntoView';
+  if(!source.includes(jump))throw new Error('提案資料の確認項目への移動処理が見つかりません');
+  const replace=(needle,value,count=1)=>{if(source.split(needle).length!==count+1)throw new Error('機種情報の確認欄が見つかりません');source=source.split(needle).join(value);};
+  const modelSource=`function nvsMiiNodeSourceHtml(node){
+    const rows=window.__nvsMiiNodePlacementModels?.(node)||[];
+    return '<div class="nvsCurrentModel topoEasyHint"'+(rows.length?'':' hidden')+'><strong>配置図の正式型番（変更は配置図）</strong>'+rows.map(row=>'<p style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(row.label)+'\\n設置場所: '+esc(row.location)+'\\n正式型番: '+esc(row.model||'未入力')+'</p>').join('')+'</div>';
+  }
+  function nvsMiiRefreshNodeSources(body,node){const box=body.querySelector('.nvsCurrentModel');if(box)box.outerHTML=nvsMiiNodeSourceHtml(node);}
+  `;
+  replace('function v198PanelInner(){',modelSource+'function v198PanelInner(){');
+  replace('<label>詳細<textarea id="easyNodeDetail">','${nvsMiiNodeSourceHtml(n)}<label>資料の説明（自由記述）<textarea id="easyNodeDetail">',2);
+  replace('<th>詳細</th>','<th>資料の説明（自由記述）</th>');
+  replace('<td><input data-tn="${i}" data-tk="detail" value="${esc(n.detail)}"></td>','<td>${nvsMiiNodeSourceHtml(n)}<input data-tn="${i}" data-tk="detail" value="${esc(n.detail)}"></td>');
+  replace('nvsMiiRefreshNodeQuantity(body,n);','nvsMiiRefreshNodeQuantity(body,n);nvsMiiRefreshNodeSources(body,n);');
+  return source.replace(jump,'v1929CloseIssues();if(!target)return;window.__nvsProposalShowTarget?.(target);target.scrollIntoView');
+}
+function nvsMiiVisibleProposalSteps(steps,doc){
+  return steps.filter(([id])=>id!=='diagnosis'||!doc.getElementById('imamiruForm')?.classList.contains('off'));
+}
+function nvsMiiInstallProposalForm(session){
+  const {frame,owner}=session,doc=frame.contentDocument,win=frame.contentWindow,editor=doc.querySelector('.editor');
+  if(!editor)throw new Error('提案資料の入力欄が見つかりません');
+  const sections={baseForm:'placement',equipmentForm:'placement',moshimieForm:'placement',imamiruForm:'diagnosis',systemForm:'system'};
+  const steps=[['placement','設置情報','図面の機器・写真を確認'],['diagnosis','診断・提案','選択肢を使って説明を補足'],['system','構成・条件','接続と運用条件を確認']];
+  let active='placement',disposed=false,scheduled=false,metadataOpen=false,equipmentOpen=false;
+  const areaOpen=new Map();
+  const style=doc.createElement('style');style.id='nvs-proposal-form-style';style.textContent=`
+@media screen{
+ .nvsProposalGuide{margin:0 0 12px;padding:12px 16px;border:1px solid #d5e3db;border-radius:14px;background:#f4f9f5;color:#234937}
+ .nvsProposalGuide h2{margin:0 0 4px;font-size:18px;border:0}.nvsProposalGuide p{margin:4px 0 8px;line-height:1.6;font-size:11px;color:#526a5c}
+ .nvsProposalStats{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px}.nvsProposalStat{padding:5px 10px;background:white;border:1px solid #dce6df;border-radius:8px;font-size:12px}.nvsProposalStat b{font-size:15px;margin-left:8px;color:#1f6848}
+ .nvsProposalSteps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.nvsProposalSteps button{display:flex;flex-direction:column;gap:4px;align-items:flex-start;min-height:50px;padding:8px 12px;background:white;border:1px solid #ccdcd1;border-radius:10px;color:#3b5747;text-align:left;white-space:normal;font-size:13px}.nvsProposalSteps button small{font-size:10px;font-weight:400;line-height:1.5}.nvsProposalSteps button[hidden]{display:none!important}.nvsProposalSteps button[aria-current=step]{background:#245c43;color:white;border-color:#245c43}
+ .nvsProposalHidden{display:none!important}.nvsProposalOptional{border:1px solid #d7e2dc;border-radius:9px;margin-top:12px;padding:0 12px;background:#fafcfb}.nvsProposalOptional>summary{cursor:pointer;padding:12px 0;font-weight:700;font-size:12px;color:#506b5b}.nvsProposalOptional[open]>summary{margin-bottom:8px;border-bottom:1px solid #e0e8e3}.nvsProposalOptional .row{margin-bottom:12px}
+ #baseForm{padding:12px 18px}#baseForm>h2{font-size:17px;margin:0 0 10px}#baseForm>.row{margin-bottom:10px}#baseForm>.nvsProposalMetadata{margin-top:8px}#baseForm>.nvsProposalMetadata>summary{padding:9px 0}.nvsProposalGuide+.panel h2,.nvsProposalHint{color:#456751}.nvsProposalHint{font-size:12px;line-height:1.7;margin:6px 0 14px}.nvsProposalFromPlot{font-size:10px;color:#2a6846;display:block;margin-top:5px}.nvsProposalLinked{background:#edf5ef!important;color:#405b49!important;opacity:1!important;cursor:default}
+ .nvsProposalCountHint{display:block;font-size:10px;line-height:1.5;margin-top:4px;color:#64786a}
+  .nvsProposalOriginals{margin:9px 0 0;padding:9px 12px;border:1px solid #d5e3db;border-radius:8px;background:white;font-size:11px;color:#365947}.nvsProposalOriginals summary{cursor:pointer;font-weight:700}.nvsProposalOriginals p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;margin:7px 0 0}
+ .nvsProposalConnection{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;padding:12px 14px;border:1px solid #d5e3db;border-radius:9px;background:#f4f9f5;color:#315b43;font-size:12px;line-height:1.6}
+ .nvsProposalConnection button{flex:none;min-height:38px;padding:8px 12px;border-radius:8px;background:#245c43;border:1px solid #245c43;color:white;font-weight:700;cursor:pointer}
+ .nvsProposalEmpty{padding:18px;border:1px dashed #bacfc0;border-radius:9px;color:#58705f;font-size:12px;line-height:1.8}
+ .nvsProposalFooter{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:16px 0 6px;padding:14px 0;border-top:1px solid #dce6df}.nvsProposalFooter button{min-height:42px;border-radius:8px;padding:10px 18px}.nvsProposalFooter .nvsProposalNext{background:#245c43;border-color:#245c43;color:#fff}.nvsProposalFooter span{font-size:11px;color:#64786a}
+ .nvsProposalArea>summary{cursor:pointer;list-style:none;padding:0 0 8px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}.nvsProposalArea>summary::before{content:'▸';color:#35704e}.nvsProposalArea[open]>summary::before{content:'▾'}.nvsProposalArea>summary h3{margin:0;flex:1;min-width:160px}.nvsProposalAreaName{width:100%;font-size:13px;font-weight:700;color:#3d6550;padding-left:17px}.nvsProposalAreaContent{padding-top:10px}.nvsProposalAreaCount{font-size:10px;color:#64786a;font-weight:400;margin-left:8px}
+ #equipmentForm>.nvsProposalOptional{background:white}#equipmentForm .nvsProposalOptional>summary{font-size:14px;color:#2c5d42}#equipmentForm .nvsProposalOptional table{margin-bottom:14px}
+ @media(max-width:800px){.nvsProposalGuide{padding:14px}.nvsProposalSteps button{padding:10px 8px;min-height:56px;font-size:12px}.nvsProposalSteps button small{font-size:9px}.nvsProposalStats{gap:5px}.nvsProposalStat{padding:6px 8px;font-size:11px}.nvsProposalStat b{font-size:14px}.nvsProposalFooter span{display:none}.nvsProposalConnection{align-items:stretch;flex-direction:column}}
+}
+@media print{.nvsProposalGuide,.nvsProposalFooter,.nvsProposalEmpty{display:none!important}}
+`;
+  doc.head.appendChild(style);
+  const guide=doc.createElement('section');guide.className='nvsProposalGuide';guide.setAttribute('aria-label','提案資料の作成手順');
+  guide.innerHTML='<h2>図面の情報から、提案資料を作成</h2><p>配置した機器・設置場所・写真を取り込みました。必要な説明を補足し、いつでもプレビューで完成形を確認できます。機種・設置場所の変更は図面で行います。</p><div class="nvsProposalStats" aria-label="図面から取り込んだ情報"></div><nav class="nvsProposalSteps" aria-label="資料入力のステップ"></nav>';
+  const orderHint=doc.createElement('p');orderHint.className='nvsProposalOrderHint';orderHint.hidden=true;
+  orderHint.textContent='カメラ番号は現在の配置図の順です。入力欄は登録順のため前後することがあります。階名と設置場所で確認してください。';
+  const originalDetails=doc.createElement('details');originalDetails.className='nvsProposalOriginals';originalDetails.hidden=true;
+  const originalSummary=doc.createElement('summary'),originalBody=doc.createElement('div');originalDetails.append(originalSummary,originalBody);guide.querySelector('.nvsProposalStats').after(orderHint,originalDetails);
+  const nav=guide.querySelector('nav');
+  steps.forEach(([id,label,note],index)=>{const button=doc.createElement('button');button.type='button';button.dataset.proposalStep=id;button.innerHTML='<strong>'+(index+1)+'. '+label+'</strong><small>'+note+'</small>';button.addEventListener('click',()=>show(id,true));nav.appendChild(button);});
+  editor.prepend(guide);
+  const empty=doc.createElement('p');empty.className='nvsProposalEmpty';empty.hidden=true;
+  const footer=doc.createElement('div');footer.className='nvsProposalFooter';footer.innerHTML='<button type="button" data-proposal-back>前へ</button><span>未入力の項目は、あとから補足できます。</span><button type="button" class="nvsProposalNext" data-proposal-next></button>';
+  editor.append(empty,footer);
+  const connection=doc.createElement('div');connection.className='nvsProposalConnection';
+  connection.innerHTML='<span data-proposal-connection-note></span><button type="button" data-proposal-connection>配線から接続図を作る</button>';
+  doc.getElementById('systemForm')?.querySelector(':scope > h2')?.after(connection);
+  connection.querySelector('button').addEventListener('click',()=>{
+    if(disposed)return;
+    try{nvsMiiFlush();nvsView.scenario='proposed';nvsPlotReview();}
+    catch(error){toast(error.message,'warn');}
+  });
+  const availableSteps=()=>nvsMiiVisibleProposalSteps(steps,doc);
+  footer.querySelector('[data-proposal-back]').addEventListener('click',()=>{const path=availableSteps(),i=path.findIndex(s=>s[0]===active);show(path[Math.max(0,i-1)][0],true);});
+  footer.querySelector('[data-proposal-next]').addEventListener('click',()=>{const path=availableSteps(),i=path.findIndex(s=>s[0]===active);if(i===path.length-1)doc.getElementById('showPreview').click();else show(path[i+1][0],true);});
+  const details=(className,title,open,onToggle)=>{const el=doc.createElement('details');el.className=className;el.open=open;const summary=doc.createElement('summary');summary.textContent=title;el.appendChild(summary);el.addEventListener('toggle',()=>onToggle(el.open));return el;};
+  const title=(panel,text)=>{const h=panel?.querySelector(':scope > h2');if(h){const first=[...h.childNodes].find(n=>n.nodeType===3);if(first)first.textContent=text+' ';}};
+  function decorate(){
+    const data=win.MII_TEST.getProject(),base=doc.getElementById('baseForm');
+    if(!base.querySelector('.nvsProposalMetadata')){
+      title(base,'資料の宛先');const row=doc.createElement('div');row.className='row nvsProposalEssential';
+      for(const id of ['customer','site']){const label=doc.getElementById(id)?.closest('label');if(label)row.appendChild(label);}
+      const optional=details('nvsProposalOptional nvsProposalMetadata','日付・担当・掲載内容など（任意）',metadataOpen,open=>metadataOpen=open);
+      for(const child of [...base.children])if(child.tagName!=='H2')optional.appendChild(child);
+      base.append(row,optional);
+      for(const child of optional.querySelectorAll('.row'))if(!child.children.length)child.remove();
+    }
+    const eq=doc.getElementById('equipmentForm');
+    if(!eq.querySelector('.nvsProposalEquipment')){
+      title(eq,'機器一覧');const list=details('nvsProposalOptional nvsProposalEquipment','機器一覧 — 用途・備考を補足（'+(data.equipment||[]).length+'件）',equipmentOpen,open=>equipmentOpen=open);
+      for(const child of [...eq.children])if(child.tagName!=='H2')list.appendChild(child);eq.appendChild(list);
+    }
+    const linked=new Map(nvsMiiEquipment(owner).filter(row=>row.floor).map(row=>[row.reportKey,row]));
+    for(const control of eq.querySelectorAll('select[data-row][data-col]')){
+      const row=data.equipment?.[+control.dataset.row],isLinked=linked.has(row?._nvsId)&&['1','3'].includes(control.dataset.col);
+      if(isLinked){control.disabled=true;control.classList.add('nvsProposalLinked');control.title='図面・プロットから取り込んだ値です。変更は図面側で行ってください。';if(!control.parentElement.querySelector('.nvsProposalFromPlot')){const note=doc.createElement('span');note.className='nvsProposalFromPlot';note.textContent='図面から';control.after(note);}}
+    }
+    const area=doc.getElementById('moshimieForm');title(area,'設置場所・画角・ご提案');
+    // 自動生成され、現在も1台の配置カメラだけを参照する行に限り、カメラ番号で案内する。
+    // 手入力や複数機器をまとめた調査エリアは従来のAREA表記を残す。
+    const cameraRefs=owner.floors.flatMap(f=>f.devices.filter(isCameraDevice).map(d=>({key:nvsDeviceKey(f,d),floor:f.name}))),cameraKeys=cameraRefs.map(ref=>ref.key);
+    const cameraHeading=(row,index)=>{
+      const binding=Object.entries(owner.nvs?.basicSync?.areas||{}).find(([key,record])=>record.id===row?._nvsId&&!record.external&&cameraKeys.includes(key));
+      const linked=owner.nvs?.areas?.find(value=>value.id===row?._nvsId)?.assetKeys||[];
+      return binding&&linked.length===1&&linked[0]===binding[0]?'カメラ'+(cameraKeys.indexOf(binding[0])+1)+'（'+cameraRefs[cameraKeys.indexOf(binding[0])].floor+'）':'AREA '+(index+1);
+    };
+    const cameraNumbers=(data.moshimie||[]).map(cameraHeading).map(label=>Number(/^カメラ(\d+)/.exec(label)?.[1]||0)).filter(Boolean);
+    orderHint.hidden=!cameraNumbers.some((number,index)=>index>0&&number<cameraNumbers[index-1]);
+    for(const [index,card] of [...area.querySelectorAll(':scope > .card')].entries())if(!card.querySelector('.nvsProposalArea')){
+      const row=data.moshimie?.[index],key=row?._nvsId||'area-'+index;
+      const fold=details('nvsProposalArea','',areaOpen.has(key)?areaOpen.get(key):index===0,open=>areaOpen.set(key,open));
+      const summary=fold.firstChild,heading=card.querySelector('h3');if(heading)summary.appendChild(heading);
+      const label=doc.createElement('span');label.className='nvsProposalAreaName';label.textContent=row?.area||'設置場所を選択';
+      const count=doc.createElement('span');count.className='nvsProposalAreaCount';count.textContent='写真 '+(row?.photos||[]).filter(Boolean).length+'枚';label.appendChild(count);summary.appendChild(label);
+      const content=doc.createElement('div');content.className='nvsProposalAreaContent';while(card.firstChild)content.appendChild(card.firstChild);fold.appendChild(content);card.appendChild(fold);
+    }
+    title(doc.getElementById('imamiruForm'),'既設設備の診断・改善提案');title(doc.getElementById('systemForm'),'接続構成・録画・ネットワーク条件');
+    for(const [index,card] of [...area.querySelectorAll(':scope > .card')].entries()){
+      const row=data.moshimie?.[index],label=card.querySelector('.nvsProposalAreaName');if(!label)continue;
+      const heading=card.querySelector('.nvsProposalArea > summary h3'),headingText=heading&&[...heading.childNodes].find(node=>node.nodeType===3);
+      if(headingText){const display=cameraHeading(row,index)+' ';if(headingText.textContent!==display)headingText.textContent=display;}
+      const value=(row?.area||'設置場所を選択')+'|'+(row?.photos||[]).filter(Boolean).length;
+      if(label.dataset.value!==value){label.replaceChildren(doc.createTextNode(row?.area||'設置場所を選択'));const count=doc.createElement('span');count.className='nvsProposalAreaCount';count.textContent='写真 '+(row?.photos||[]).filter(Boolean).length+'枚';label.appendChild(count);label.dataset.value=value;}
+    }
+    const devices=owner.floors.flatMap(f=>f.devices),counts=[['カメラ',devices.filter(isCameraDevice).length],['ルーター',devices.filter(d=>d.type==='router').length],['ハブ',devices.filter(d=>d.type==='hub').length],['AP',devices.filter(d=>d.type==='ap').length],['添付写真',devices.filter(d=>d.photoId&&owner.photos[d.photoId]).length]];
+    const stats=guide.querySelector('.nvsProposalStats'),signature=JSON.stringify(counts);
+    if(stats.dataset.counts!==signature){stats.replaceChildren();for(const [label,count] of counts){const item=doc.createElement('span');item.className='nvsProposalStat';item.append(doc.createTextNode(label));const value=doc.createElement('b');value.textContent=count+(label==='添付写真'?'枚':'台');item.appendChild(value);stats.appendChild(item);}stats.dataset.counts=signature;}
+    // 既存の原文確認欄で、短い型番も含めた現在の配置情報を確認する。
+    const originals=nvsMiiPlacementModels(owner);
+    const originalSignature=JSON.stringify(originals);
+    originalDetails.hidden=!originals.length;
+    if(originalDetails.dataset.signature!==originalSignature){
+      originalSummary.textContent='配置図の機種情報 '+originals.length+'台（原文・変更は配置図）';originalBody.replaceChildren();
+      for(const item of originals){const paragraph=doc.createElement('p');paragraph.dataset.sourceKey=item.key;paragraph.textContent=item.label+'\n設置場所: '+item.location+'\n正式型番: '+(item.model||'未入力');originalBody.appendChild(paragraph);}
+      originalDetails.dataset.signature=originalSignature;
+    }
+    const graph=owner.nvs?.topology?.proposed,hasDevices=devices.length>0;
+    const missing=hasDevices&&!graph?.nodes?.length;
+    const changed=hasDevices&&!missing&&graph?.plotSync?.signature!==nvsPlotSignature(owner);
+    connection.classList.toggle('nvsProposalHidden',!missing&&!changed);
+    connection.querySelector('[data-proposal-connection-note]').textContent=missing
+      ?'接続図はまだありません。図面の機器・配線から候補を作り、接続先を確認できます。'
+      :'図面の機器・配線が変わりました。候補を確認して接続図に反映できます。';
+    applyStep();
+  }
+  function applyStep(){
+    const path=availableSteps();
+    nav.style.gridTemplateColumns=`repeat(${path.length},minmax(0,1fr))`;
+    if(!path.some(([id])=>id===active))active=path[Math.min(steps.findIndex(([id])=>id===active),path.length-1)]?.[0]||'placement';
+    for(const [id,step] of Object.entries(sections))doc.getElementById(id)?.classList.toggle('nvsProposalHidden',step!==active);
+    for(const button of nav.querySelectorAll('button')){
+      const index=path.findIndex(([id])=>id===button.dataset.proposalStep);
+      button.hidden=index<0;
+      button.querySelector('strong').textContent=(index+1)+'. '+steps.find(([id])=>id===button.dataset.proposalStep)[1];
+      if(button.dataset.proposalStep===active)button.setAttribute('aria-current','step');else button.removeAttribute('aria-current');
+    }
+    const visible=Object.keys(sections).some(id=>sections[id]===active&&!doc.getElementById(id)?.classList.contains('off'));
+    empty.hidden=visible;empty.textContent='この資料では既設設備の診断を掲載しない設定です。掲載する場合は「設置情報」→「日付・担当・掲載内容など」で作成パターンを変更できます。';
+    const index=path.findIndex(([id])=>id===active);footer.querySelector('[data-proposal-back]').hidden=index===0;footer.querySelector('[data-proposal-next]').textContent=index===path.length-1?'プレビューを確認':'次へ：'+path[index+1][1];
+  }
+  function show(step,scroll=false){if(!availableSteps().some(([id])=>id===step))return;active=step;applyStep();if(scroll)guide.scrollIntoView({behavior:'smooth',block:'start'});}
+  function showTarget(target){
+    const panel=target?.closest?.('[id]')?.closest?.('.panel')||target?.closest?.('.panel');if(!panel||!sections[panel.id])return;
+    show(sections[panel.id]);for(let el=target;el&&el!==editor;el=el.parentElement)if(el.tagName==='DETAILS')el.open=true;
+    if(target===panel&&panel.id==='equipmentForm')panel.querySelector('details').open=true;
+    if(target===panel&&panel.id==='baseForm')panel.querySelector('details').open=true;
+  }
+  win.__nvsProposalShowTarget=showTarget;session.showFormSection=id=>{const target=doc.getElementById(id);showTarget(target);return target;};
+  const schedule=()=>{if(scheduled||disposed)return;scheduled=true;queueMicrotask(()=>{scheduled=false;if(disposed)return;observer.disconnect();try{decorate();}finally{observer.observe(editor,{subtree:true,childList:true});}});};
+  const observer=new MutationObserver(schedule);
+  editor.addEventListener('change',schedule);
+  // 入力画面のスクロールをプレビューへ持ち越さず、最初の頁のタイトルから表示する。
+  const previewButton=doc.getElementById('showPreview');let inputScroll=0,previewSequence=0;
+  const previewScroll=()=>{const entering=!doc.body.classList.contains('previewOnly'),sequence=++previewSequence;if(entering)inputScroll=win.scrollY;win.requestAnimationFrame(()=>{if(disposed||sequence!==previewSequence)return;const preview=doc.body.classList.contains('previewOnly');if(preview!==entering)return;win.scrollTo(0,preview?0:inputScroll);if(preview){const pane=doc.querySelector('.previewPane');if(pane)pane.scrollTop=0;}});};
+  previewButton.addEventListener('click',previewScroll,true);
+  decorate();observer.observe(editor,{subtree:true,childList:true});
+  return ()=>{disposed=true;observer.disconnect();editor.removeEventListener('change',schedule);previewButton.removeEventListener('click',previewScroll,true);delete win.__nvsProposalShowTarget;session.showFormSection=null;};
+}
+
 // MII原版の入力・描画・印刷・編集可能PPTXを隔離フレームで実行する。
 // 描画処理を維持し、案件連携と描画完了の確認だけを追加する。
 const NVS_MII_DIAG=['category','grade','target','finding','risk','proposal','priority','_miiCustomTarget'];
@@ -9694,15 +10100,26 @@ function nvsMiiEqual(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 // 原版データ外にある確認状態・台帳数量・施工配線の参照も、再描画と出力中の変更検査に含める。
 function nvsMiiOutputStamp(p){return JSON.stringify([[p.nvs?.diagnostics||[],p.nvs?.areas||[]].map(rows=>rows.map(row=>[row.id,row.status])),nvsMiiEquipment(p).map(row=>[row.reportKey,row.quantity]),Object.keys(NVS_SCENARIOS).map(key=>nvsMiiWireWarnings(p,key))]);}
 function nvsMiiWireWarnings(p,scenario){
-  return {scenario:NVS_SCENARIOS[scenario],items:nvsMissingWireLinks(p,scenario).map(({index,link,missing,label})=>({index:index+1,label,kind:NVS_LINK_TYPES[link.kind]||'その他',missing:missing.length,total:new Set(link.wireKeys?.includes(link.wireKey)?link.wireKeys:[link.wireKey]).size}))};
+  const unresolved=nvsUnresolvedWireLinks(p,scenario).map(({index,link,missing,labels,wires})=>({index:index+1,label:missing.length?missing.map(node=>nvsNodeInfo(node,p).name).join(' / '):'接続先未確認 / '+labels.join(' / '),kind:link?NVS_LINK_TYPES[link.kind]||'その他':'施工配線',notice:nvsUnresolvedWireNotice(p,{wires,labels,missing,pending:!link})}));
+  return {scenario:NVS_SCENARIOS[scenario],items:[...nvsMissingWireLinks(p,scenario).map(({index,link,missing,label})=>({index:index+1,label,kind:NVS_LINK_TYPES[link.kind]||'その他',missing:missing.length,total:new Set(link.wireKeys?.includes(link.wireKey)?link.wireKeys:[link.wireKey]).size})),...unresolved]};
 }
 function nvsMiiFields(row,keys){return Object.fromEntries(keys.filter(k=>row[k]!==undefined).map(k=>[k,nvsClone(row[k])]));}
-function nvsMiiPhotoSlots(p,row){
+function nvsMiiPhotoSlotIds(row){
   const ids=row.photoIds||[],roles=row.photoRoles||{};
-  const a=ids.find(id=>roles[id]==='設置箇所')||ids[0];
-  const b=ids.find(id=>id!==a&&roles[id]==='画角イメージ')||ids.find(id=>id!==a);
-  return [a,b].map(id=>p.photos[id]?.src||null);
+  const typed=row.miiPhotoSlotsExplicit===true||ids.some(id=>roles[id]==='設置箇所'||roles[id]==='画角イメージ');
+  const a=ids.find(id=>roles[id]==='設置箇所')||(!typed?ids[0]:null);
+  // 役割付きの行では、過去の「設置箇所」写真を画角の空欄へ繰り上げない。
+  const b=ids.find(id=>id!==a&&roles[id]==='画角イメージ')||(!typed?ids.find(id=>id!==a):null);
+  return [a,b];
 }
+// 今回の資料写真編集を既存の手入力印へ記録し、次の図面同期で参照を置換しない。
+function nvsMarkAreaPhotosManual(row,p){
+  for(const saved of Object.values(p.nvs?.basicSync?.areas||{}))if(saved.id===row.id&&!saved.external){
+    saved.fields||={};saved.fields.photoIds||={value:nvsClone(row.photoIds||[])};saved.fields.photoIds.manual=true;
+  }
+}
+function nvsMiiPhotoSlots(p,row){return nvsMiiPhotoSlotIds(row).map(id=>p.photos[id]?.src||null);}
+
 function nvsMiiEquipment(p){
   const n=nvsEnsure(p);
   return nvsAssets(p).map(a=>{
@@ -9711,20 +10128,142 @@ function nvsMiiEquipment(p){
     return {...a,reportKey:mapped?'asset:'+mapped.id:a.key,reportSource:{category,...mapped,...a.source,...a.source.miiEquipment}};
   });
 }
+// 完成形MIIの見出し上限に収める資料用表示。原文は図面・案件ZIP・構成詳細へ残す。
+// 末尾の「…」で省略を明示し、制限を緩めてPPTXを見切れたまま出さない。
+function nvsMiiCompactLabel(value,limit,tail=0){
+  const original=String(value||'');
+  if(original.length<=limit)return original;
+  const suffix=tail?Array.from(original).slice(-tail).join(''):'';
+  let prefix='';for(const character of original){if(prefix.length+character.length+1+suffix.length>limit)break;prefix+=character;}
+  return prefix+'…'+suffix;
+}
+// 異なる正式型番が同じ省略名になる場合だけ、末尾の識別文字を残す。
+function nvsMiiEquipmentDisplayNames(rows){
+  const labels=rows.map(row=>row.floor?nvsMiiCompactLabel(row.name,28):row.name),groups=new Map();
+  rows.forEach((row,index)=>{if(row.floor){const key=labels[index];if(!groups.has(key))groups.set(key,[]);groups.get(key).push(index);}});
+  for(const indexes of groups.values()){
+    const names=[...new Set(indexes.map(index=>String(rows[index].name||'')))];if(names.length<2)continue;
+    const occupied=new Set(labels.filter((_,index)=>!indexes.includes(index)));let replacements;
+    for(let tail=1;tail<=25;tail++){
+      const values=names.map(name=>nvsMiiCompactLabel(name,28,tail));
+      if(new Set(values).size===names.length&&values.every(value=>!occupied.has(value))){replacements=new Map(names.map((name,index)=>[name,values[index]]));break;}
+    }
+    if(!replacements){replacements=new Map();let serial=1;for(const name of [...names].sort()){
+      let value;do{const suffix=' ['+serial+++']';value=nvsMiiCompactLabel(name,28-suffix.length)+suffix;}while(occupied.has(value));
+      replacements.set(name,value);occupied.add(value);
+    }}
+    for(const index of indexes)labels[index]=replacements.get(String(rows[index].name||''));
+  }
+  return labels;
+}
+// 図面の機器と資料の補足を分離する。既存の資料入力を残したまま配置情報を取り込む。
+function nvsMiiAreaProjection(p,row){
+  const value={...nvsMiiFields(row,NVS_MII_AREA),_nvsId:row.id,area:row.name||'',photos:nvsMiiPhotoSlots(p,row)};
+  const cameras=p.floors.flatMap(f=>f.devices.filter(isCameraDevice).map(d=>({f,d,key:nvsDeviceKey(f,d)})));
+  const linked=cameras.filter(({key})=>(row.assetKeys||[]).includes(key));
+  // 手作業でまとめた調査エリアは保持し、図面から作った個体行だけを更新する。
+  const source=linked.length===1&&p.nvs?.basicSync?.areas?.[linked[0].key];
+  if(source&&source.id===row.id&&!source.external){
+    const {f,d}=linked[0];
+    const original=d.location||d.annotation||f.name+' '+(deviceLabels(f)[d.id]||'カメラ');
+    value.area=nvsMiiCompactLabel(original,22);
+    // 図面から自動同期した推奨位置だけを資料の35文字枠へ収める。手修正した文章は保持する。
+    if(!source.fields?.position?.manual&&row.position===original)value.position=nvsMiiCompactLabel(original,35);
+    value.count='1台';
+    // 図面の写真が差し替われば資料へ反映。資料の第2写真と調査本文は独立して保持する。
+    const sourcePhoto=d.photoId&&p.photos?.[d.photoId]?.src;
+    value.photos=[sourcePhoto||null,value.photos[1]||null];
+  }
+  return value;
+}
+// reportKeyが対応付けで変わっても、配置/台帳の実体ごとに資料入力を保持する。
+function nvsMiiArchiveEquipment(saved,reason,row,sourceKey){
+  const archive=saved.sourceInputArchive||(saved.sourceInputArchive=[]),entry={reason,row:nvsClone(row)};
+  if(sourceKey)entry.sourceKey=sourceKey;
+  // 同じ内容へ戻った場合も、その内容を最新として復元する（A→B→A）。
+  const old=archive.findIndex(value=>nvsMiiEqual(value,entry));if(old>=0)archive.splice(old,1);archive.push(entry);
+}
+function nvsMiiCaptureEquipment(p){
+  const saved=p.nvs?.mii;if(!saved)return;
+  const current=nvsMiiEquipment(p),records=saved.equipmentIdentity||[];
+  records.forEach(record=>record.active=false);
+  for(const item of current){
+    let record=records.find(value=>value.sourceKey===item.key);
+    if(!record){record={sourceKey:item.key};records.push(record);}
+    record.reportKey=item.reportKey;record.active=true;
+    const row=saved.project?.equipment?.find(value=>value._nvsId===item.reportKey),baseline=saved.baseline?.equipment?.find(value=>value._nvsId===item.reportKey);
+    if(row)record.row=nvsClone(row);if(baseline)record.baseline=nvsClone(baseline);
+    record.excluded=(saved.excludedEquipment||[]).includes(item.reportKey);
+  }
+  saved.equipmentIdentity=records;
+}
+function nvsMiiRebindEquipment(p){
+  const saved=p.nvs?.mii;if(!saved?.project)return;
+  const current=nvsMiiEquipment(p),records=saved.equipmentIdentity||[];
+  if(!records.length){
+    const rows=saved.project.equipment||[],baseline=saved.baseline?.equipment||[],ids=new Set([...baseline.map(row=>row._nvsId),...(saved.excludedEquipment||[])]);
+    for(const id of ids){
+      const item=current.find(value=>value.reportKey===id),hasPriorDevice=item?.floor&&ids.has(item.key);
+      records.push({sourceKey:item&&!hasPriorDevice?item.key:id,reportKey:id,active:true,excluded:(saved.excludedEquipment||[]).includes(id),row:rows.some(row=>row._nvsId===id)?nvsClone(rows.find(row=>row._nvsId===id)):undefined,baseline:baseline.some(row=>row._nvsId===id)?nvsClone(baseline.find(row=>row._nvsId===id)):undefined});
+    }
+  }
+  for(const record of records.filter(value=>value.active)){
+    const row=saved.project.equipment?.find(value=>value._nvsId===record.reportKey),baseline=saved.baseline?.equipment?.find(value=>value._nvsId===record.reportKey);
+    if(row)record.row=nvsClone(row);if(baseline)record.baseline=nvsClone(baseline);
+    record.excluded=(saved.excludedEquipment||[]).includes(record.reportKey);
+  }
+  const binding=current.map(item=>{
+    let record=records.find(value=>value.sourceKey===item.key),inherited=false;
+    if(!record&&item.floor){const previous=records.find(value=>value.sourceKey===item.reportKey);if(previous){record={...nvsClone(previous),sourceKey:item.key};records.push(record);inherited=true;}}
+    return {item,record,changed:!!record&&(inherited||record.reportKey!==item.reportKey||!record.active)};
+  });
+  if(!binding.some(value=>value.changed)){saved.equipmentIdentity=records;return;}
+  const oldKeys=new Set(records.filter(value=>value.active).map(value=>value.reportKey));
+  const oldRows=saved.project.equipment||[],oldBaseline=saved.baseline?.equipment||[],extra=oldRows.filter(row=>!oldKeys.has(row._nvsId));
+  const nextRows=[],nextBaseline=[],excluded=[];
+  for(const {item,record,changed} of binding){
+    const fresh={_nvsId:item.reportKey,...nvsMiiFields(item.reportSource,NVS_MII_EQUIP),name:item.name,location:item.location};
+    const owned=!records.some(value=>value.active&&value.reportKey===item.reportKey&&value.sourceKey!==item.key);
+    const row=changed?record.row:owned?oldRows.find(value=>value._nvsId===item.reportKey):undefined,before=changed?fresh:owned?oldBaseline.find(value=>value._nvsId===item.reportKey):undefined;
+    if(record?.excluded)excluded.push(item.reportKey);
+    else if(row)nextRows.push({...nvsClone(row),_nvsId:item.reportKey});
+    if(before&&!record?.excluded)nextBaseline.push({...nvsClone(before),_nvsId:item.reportKey});
+  }
+  // 統合でいったん非表示になる候補側のメモも、対応解除時のために別実体として残す。
+  for(const record of records.filter(value=>value.active))if(record.row&&(!current.some(item=>item.key===record.sourceKey)||binding.some(value=>value.item.key===record.sourceKey&&value.changed)))nvsMiiArchiveEquipment(saved,'source-remapped',record.row,record.sourceKey);
+  saved.project.equipment=nextRows.concat(extra.filter(row=>!nextRows.some(value=>value._nvsId===row._nvsId)));
+  saved.baseline={...saved.baseline,equipment:nextBaseline};saved.excludedEquipment=excluded;
+  records.forEach(record=>record.active=false);
+  for(const {item,record} of binding)if(record){record.reportKey=item.reportKey;record.active=true;}
+  saved.equipmentIdentity=records;
+}
+function nvsMiiRetainSourceInputs(saved,shared,placed,sourceKeys){
+  if(!saved?.project)return;
+  const latest=new Map(shared.equipment.map(row=>[row._nvsId,row]));
+  const priorIds=new Set((saved.baseline?.equipment||[]).map(row=>row._nvsId));
+  for(const row of saved.project.equipment||[]){
+    const fresh=latest.get(row._nvsId),isPlaced=placed.has(row._nvsId);
+    const removed=priorIds.has(row._nvsId)&&!fresh;
+    if(!removed&&!(isPlaced&&fresh&&['name','location'].some(key=>!nvsMiiEqual(row[key],fresh[key]))))continue;
+    nvsMiiArchiveEquipment(saved,removed?'source-removed':'source-updated',row,sourceKeys?.get(row._nvsId)||saved.equipmentIdentity?.find(value=>value.reportKey===row._nvsId)?.sourceKey);
+  }
+}
 function nvsMiiProjection(p,scenario){
   const n=nvsEnsure(p),excluded=new Set(n.mii?.excludedEquipment||[]);
   const diagnostics=n.diagnostics.map(r=>({...nvsMiiFields(r,NVS_MII_DIAG),_nvsId:r.id}));
   const photoIds=[...new Set(n.diagnostics.flatMap(r=>r.photoIds||[]))];
   const g=nvsClone(n.topology[scenario]||{nodes:[],links:[]});
+  if(scenario==='proposed'){const stale=nvsProposalStaleBlocks(p,g);if(stale.size)g.nodes=g.nodes.filter(row=>!stale.has(row.id));}
+  const equipmentRows=nvsMiiEquipment(p).filter(a=>!excluded.has(a.reportKey)),equipmentNames=nvsMiiEquipmentDisplayNames(equipmentRows);
   g.nodes=g.nodes.map(r=>{const info=nvsNodeInfo(r,p);delete r._nvsBinding;
     // 同じIDの別ノードと取り違えず、原版のUndoにも台帳対応と未対応時数量を保持する。
     const binding=r.assetKeys?.length?{_nvsBinding:{projectId:n.projectId,scenario,id:r.id,type:r.type,assetKeys:[...r.assetKeys],fallbackQty:Number(r.qty??1)}}:{};
     return {...r,...binding,name:info.name,qty:info.qty};});
   return {schema:'mii.project.v1',customer:p.meta.customer||'',site:n.profile.site||p.meta.title||'',address:n.profile.address||'',owner:n.profile.owner||'',
-    recordDays:n.system.recordDays||'',system:{...nvsClone(n.system),existingStatus:n.profile.existingStatus==='なし'?'既設なし':n.profile.existingStatus},
+    recordDays:n.system.recordDays||'',system:{...nvsClone(n.system),cameraCount:p.floors.some(f=>f.devices.length)||Object.keys(n.basicSync?.areas||{}).length?p.floors.reduce((sum,f)=>sum+f.devices.filter(isCameraDevice).length,0):n.system.cameraCount,existingStatus:n.profile.existingStatus==='なし'?'既設なし':n.profile.existingStatus},
     reportOptions:nvsClone(n.report),imamiru:diagnostics,imamiruPhotos:photoIds.slice(0,2).map(id=>p.photos[id]?.src||null),
-    moshimie:n.areas.map(r=>({...nvsMiiFields(r,NVS_MII_AREA),_nvsId:r.id,area:r.name||'',photos:nvsMiiPhotoSlots(p,r)})),
-    equipment:nvsMiiEquipment(p).filter(a=>!excluded.has(a.reportKey)).map(a=>({_nvsId:a.reportKey,...nvsMiiFields(a.reportSource,NVS_MII_EQUIP),name:a.name,location:a.location})),topology:g};
+    moshimie:n.areas.map(r=>nvsMiiAreaProjection(p,r)),
+    equipment:equipmentRows.map((a,index)=>({_nvsId:a.reportKey,...nvsMiiFields(a.reportSource,NVS_MII_EQUIP),name:equipmentNames[index],location:a.location})),topology:g};
 }
 function nvsMiiSeed(p,raw){
   const n=nvsEnsure(p),r=nvsClone(raw),scenario=raw.mode==='imamiru'?'current':'proposed';
@@ -9753,17 +10292,37 @@ function nvsMiiReconcile(base,before,now){
 }
 function nvsMiiAssertTopologyQuantities(p,scenario){
   // 原版の構成表示は1〜999台。正確に表せない値を1台等へ丸めて出力しない。
-  for(const node of p.nvs?.topology?.[scenario]?.nodes||[]){const info=nvsNodeInfo(node,p);if(!Number.isFinite(info.qty)||info.qty<1||info.qty>999)throw new Error('「'+(info.name||node.id)+'」の構成数量は'+info.qty+'台です。MII形式で表示できる数量は1〜999台です。案件データは保持しています。「設計」で台帳数量または構成の対応を確認してください。');}
+  for(const node of p.nvs?.topology?.[scenario]?.nodes||[]){const info=nvsNodeInfo(node,p);if(!Number.isFinite(info.qty)||info.qty<1||info.qty>999)throw new Error('「'+(info.name||node.id)+'」の構成数量は'+info.qty+'台です。MII形式で表示できる数量は1〜999台です。案件データは保持しています。「詳細な記録 → 接続構成」で台帳数量または構成の対応を確認してください。');}
 }
 function nvsMiiProject(p=project,scenario,{forSync=false}={}){
+  // 件数・数量検査に失敗した時は、対応履歴や退避入力も含めて元案件を変えない。
+  const n=p.nvs?{...p.nvs}:nvsNew();if(n.mii)n.mii=nvsClone(n.mii);
+  const result=nvsMiiProjectData({...p,nvs:n},scenario,{forSync});
+  if(p.nvs){if(n.mii)p.nvs.mii=n.mii;}else p.nvs=n;
+  return result;
+}
+function nvsMiiProjectData(p,scenario,{forSync=false}={}){
   const n=nvsEnsure(p);
   // 1.1の案件は元のMII JSONを保持したまま、初回表示時に移行する。
   if(!n.mii){const raw=n.imports.findLast(x=>x.kind==='MII')?.source;if(raw)nvsMiiSeed(p,raw);}
   scenario=scenario||n.mii?.scenario||'proposed';
+  nvsMiiRebindEquipment(p);
   const shared=nvsMiiProjection(p,scenario),saved=n.mii;
   let data=saved?nvsMiiReconcile(saved.project,saved.baseline,shared):{
     ...shared,mode:n.profile.existingStatus==='なし'||n.profile.existingStatus==='既設なし'?'moshimie':'both',
     surveyDate:'',createdDate:nvsToday().replaceAll('-','/'),existingCount:{camera:0,recorder:0,network:0,other:0}};
+  const equipment=nvsMiiEquipment(p),placed=new Set(equipment.filter(row=>row.floor).map(row=>row.reportKey)),sourceKeys=new Map(equipment.map(row=>[row.reportKey,row.key]));
+  nvsMiiRetainSourceInputs(saved,shared,placed,sourceKeys);
+  const sourceRows=new Map(shared.equipment.map(row=>[row._nvsId,row]));
+  const priorIds=new Set((saved?.baseline?.equipment||[]).map(row=>row._nvsId)),activeIds=new Set((data.equipment||[]).map(row=>row._nvsId));
+  // 資料にだけ追加した機器は、図面機器の増減で消さず、費用台帳にも登録しない。
+  data.equipment=(data.equipment||[]).concat((saved?.project?.equipment||[]).filter(row=>!priorIds.has(row._nvsId)&&!activeIds.has(row._nvsId)&&!sourceRows.has(row._nvsId)).map(nvsClone));
+  // 機種・設置場所は図面が正本。用途・状態・備考など資料固有の入力は維持する。
+  data.equipment=(data.equipment||[]).map(row=>{
+    const archived=!saved?.project?.equipment?.some(old=>old._nvsId===row._nvsId)&&saved?.sourceInputArchive?.findLast(old=>old.row._nvsId===row._nvsId&&(!old.sourceKey||old.sourceKey===sourceKeys.get(row._nvsId)))?.row;
+    if(archived)row={...row,...nvsClone(archived)};
+    return placed.has(row._nvsId)&&sourceRows.has(row._nvsId)?{...row,name:sourceRows.get(row._nvsId).name,location:sourceRows.get(row._nvsId).location}:row;
+  });
   if(saved&&saved.scenario!==scenario)data.topology=shared.topology;
   if(!forSync)nvsMiiAssertTopologyQuantities(p,scenario);
   if(!saved){
@@ -9795,9 +10354,17 @@ function nvsMiiApply(p,previous,next,scenario){
       if(key==='moshimie'){
         if(!prior||changed(prior.area,item.area)){row.name=String(item.area||'');row.area=row.name;}
         if(!prior||changed(prior.photos,item.photos)){
-          const oldIds=(prior?.photos||[]).map(src=>Object.entries(p.photos).find(([,v])=>v.src===src)?.[0]).filter(Boolean);
-          const slots=(item.photos||[]).map((src,i)=>nvsMiiStorePhoto(p,src,(row.name||'エリア')+' '+(i===0?'設置箇所':'画角イメージ')));
-          row.photoIds=[...new Set([...slots.filter(Boolean),...(row.photoIds||[]).filter(id=>!oldIds.includes(id))])];row.photoRoles={...row.photoRoles};slots.forEach((id,i)=>{if(id)row.photoRoles[id]=i===0?'設置箇所':'画角イメージ';});
+          const priorIds=nvsMiiPhotoSlotIds(row);
+          // 同一画像を複数IDが参照できるため、画像内容から全案件の最初のIDを探さず、この行のIDだけを外す。
+          const oldIds=priorIds.filter((id,i)=>id&&prior?.photos?.[i]===p.photos[id]?.src);
+          const slots=(item.photos||[]).map((src,i)=>src&&priorIds[i]&&p.photos[priorIds[i]]?.src===src?priorIds[i]:nvsMiiStorePhoto(p,src,(row.name||'エリア')+' '+(i===0?'設置箇所':'画角イメージ')));
+          // 1行の2欄に同じ画像を選んでも、役割を互いに上書きしない。ZIPは画像実体を重複排除する。
+          if(slots[0]&&slots[0]===slots[1]){const alias=nvsId();p.photos[alias]={...p.photos[slots[1]]};slots[1]=alias;}
+          row.photoIds=[...new Set([...slots.filter(Boolean),...(row.photoIds||[]).filter(id=>!oldIds.includes(id))])];
+          row.photoRoles=Object.fromEntries(Object.entries(row.photoRoles||{}).filter(([id])=>!oldIds.includes(id)));
+          row.miiPhotoSlotsExplicit=true;
+          slots.forEach((id,i)=>{if(id)row.photoRoles[id]=i===0?'設置箇所':'画角イメージ';});
+          nvsMarkAreaPhotosManual(row,p);
         }
       }
     }
@@ -9812,27 +10379,25 @@ function nvsMiiApply(p,previous,next,scenario){
   }
   if(changed(previous.moshimie,next.moshimie))n.areas=syncRows('moshimie',n.areas,NVS_MII_AREA,r=>({id:r._nvsId,name:r.area||'',floorId:'',status:'todo',photoIds:[],assetKeys:[]}));
   const excluded=new Set(n.mii?.excludedEquipment||[]),oldEq=new Map((previous.equipment||[]).map(r=>[r._nvsId,r]));
-  for(const item of next.equipment||[]){const prior=oldEq.get(item._nvsId);if(prior&&!changed(prior,item))continue;
-    let asset=nvsMiiEquipment(p).find(a=>a.reportKey===item._nvsId);
-    if(!asset){const id=item._nvsId.startsWith('asset:')?item._nvsId.slice(6):item._nvsId;
-      const row={id,type:'other',name:item.name||'',quantity:1,bodyQty:['流用','対象外'].includes(item.status)?0:1,installQty:0,bodyUnit:null,installUnit:null,importQuantityPending:true};n.assets.push(row);asset={source:row,floor:null};}
-    for(const key of NVS_MII_EQUIP)if(!prior||changed(prior[key],item[key])){
-      if(asset.floor){asset.source.miiEquipment={...asset.source.miiEquipment,[key]:item[key]??''};if(key==='name')asset.source.model=item.name||'';if(key==='location')asset.source.location=item.location||'';}
-      else asset.source[key]=item[key]??'';
-    }
-    excluded.delete(item._nvsId);
-  }
-  const eqIds=new Set((next.equipment||[]).map(r=>r._nvsId));for(const id of oldEq.keys())if(!eqIds.has(id))excluded.add(id);
+  // 資料の機器編集は n.mii.project にだけ保存する。
+  // 配置機器、単価、数量、費用台帳へは書き戻さず、追加した行も資料専用に保つ。
+  for(const item of next.equipment||[])excluded.delete(item._nvsId);
+  const eqIds=new Set((next.equipment||[]).map(r=>r._nvsId)),sourceIds=new Set(nvsMiiEquipment(p).map(row=>row.reportKey));
+  // 図面で消えた行は掲載解除にしない。同じ個体をUndo/再配置した時に再び取り込める。
+  for(const id of oldEq.keys())if(!eqIds.has(id)&&sourceIds.has(id))excluded.add(id);
   if(changed(previous.topology,next.topology)){
     const before=n.topology[scenario]||{nodes:[],links:[]},g={...before,...nvsClone(next.topology)};
-    g.nodes=g.nodes.map(r=>{const old=before.nodes.find(a=>a.id===r.id),binding=nvsMiiTopologyBinding(p,scenario,r),node={...old,...r,assetKeys:binding?[...binding.assetKeys]:[]};
+    // 提案用投影からだけ外した交換前ブロックは、MIIの自動同期で案件から消さない。
+    const retainedStale=scenario==='proposed'?nvsProposalStaleBlocks(p,before):new Set();
+    for(const row of before.nodes)if(retainedStale.has(row.id)&&!g.nodes.some(next=>next.id===row.id))g.nodes.push(nvsClone(row));
+    g.nodes=g.nodes.map(r=>{const old=before.nodes.find(a=>a.id===r.id),binding=nvsMiiTopologyBinding(p,scenario,r),node={...old,...r,assetKeys:binding?[...binding.assetKeys]:retainedStale.has(r.id)?[...(old?.assetKeys||[])]:[]};
       // 名称・場所・注意事項の編集で、対応解除時に使う元の補助数量を表示値へ上書きしない。
       if(binding&&nvsNodeInfo(node,p).linked.length)node.qty=binding.fallbackQty;
       delete node._nvsBinding;return node;});
     const used=new Set();g.links=g.links.map(r=>{const old=before.links.find(a=>!used.has(a.id)&&a.from===r.from&&a.to===r.to&&a.kind===r.kind);if(old)used.add(old.id);return {...old,...r,id:old?.id||nvsId()};});n.topology[scenario]=g;
   }
   n.mii={...n.mii,schemaVersion:1,project:nvsClone(next),scenario,excludedEquipment:[...excluded]};
-  n.mii.baseline=nvsMiiProjection(p,scenario);nvsValidate(n);nvsValidateReferences(p);
+  n.mii.baseline=nvsMiiProjection(p,scenario);nvsMiiCaptureEquipment(p);nvsValidate(n);nvsValidateReferences(p);
 }
 function nvsMiiSource(){
   let source=JSON.parse(document.getElementById('nvs-mii-source').textContent);
@@ -9898,13 +10463,20 @@ function nvsMiiSource(){
   const photoLoader='function normalizePhotoFile(file){';
   if(!source.includes(photoLoader))throw new Error('MIIの写真読込処理を確認できません');
   source=source.replace(photoLoader,`async function normalizePhotoFile(file){window.__nvsMiiPhotoLoads=(window.__nvsMiiPhotoLoads||0)+1;try{return await nvsMiiNormalizePhotoFile(file);}finally{window.__nvsMiiPhotoLoads--;}}function nvsMiiNormalizePhotoFile(file){`);
+  // 原版は画像decode失敗時に元データを成功扱いし、既存写真を壊れた画像で上書きする。
+  // 画像が描けない場合はsetPhotoへ進めず、元の写真をそのまま残す。
+  const invalidImage='img.onerror=()=>resolve(reader.result);img.src=reader.result;';
+  const normalizerStart=source.indexOf('function nvsMiiNormalizePhotoFile(file){');
+  const invalidAt=source.indexOf(invalidImage,normalizerStart);
+  if(normalizerStart<0||invalidAt<0||invalidAt>source.indexOf('function pickPhoto(',normalizerStart))throw new Error('MIIの画像decode失敗処理を確認できません');
+  source=source.slice(0,invalidAt)+"img.onerror=()=>reject(new Error('この画像を読み込めません。JPEG・PNG画像を選び直してください。'));img.src=reader.result;"+source.slice(invalidAt+invalidImage.length);
   // 原版の2エリア/頁・10機器/頁を保持し、入力・読込の件数制限だけを拡張する。
   for(const key of ['moshimie','equipment']){
     source=source.replaceAll(`p.${key}.slice(0,20)`,`p.${key}.slice(0,1000)`);
     source=source.replaceAll(`(project.${key}||[]).length>=20`,`(project.${key}||[]).length>=1000`);
     source=source.replaceAll(`project.${key}.length>=20`,`project.${key}.length>=1000`);
   }
-  return nvsMiiTopologyQuantitySource(nvsMiiImportSource(nvsMiiQuantitySource(nvsMiiDownloadSource(nvsMiiPhotoSource(nvsMiiTopologyNotesSource(nvsMiiConfirmationSource(source)))))));
+  return nvsMiiProposalFormSource(nvsMiiTopologyQuantitySource(nvsMiiImportSource(nvsMiiQuantitySource(nvsMiiDownloadSource(nvsMiiPhotoSource(nvsMiiTopologyNotesSource(nvsMiiConfirmationSource(source))))))));
 }
 // 帳票内の固定チェックと入力検査の結果を区別する。原版の描画・出力は変更しない。
 function nvsMiiReadiness(api){
@@ -9912,10 +10484,13 @@ function nvsMiiReadiness(api){
     if(typeof api?.validate!=='function')throw new Error('検査APIなし');
     const issues=api.validate();
     if(!Array.isArray(issues)||issues.some(issue=>typeof issue!=='string'))throw new Error('検査結果不正');
-    return {state:issues.length?'draft':'ready',count:issues.length,text:issues.length?
-      `作成途中：入力不足・不一致 ${issues.length} 件。プレビューのチェック表示は調査完了を示しません。`:
-      '入力チェック通過（現地確認完了を意味しません）。内容を確認して出力してください。'};
-  }catch(error){return {state:'unknown',count:null,text:'入力チェックを取得できません。入力の完了は未確認です。案件に戻って開き直してください。'};}
+    // 空欄は提出前の補足候補として扱い、数量・参照・出力上限の不整合を分けて知らせる。
+    const topologyRequired=issues.includes('接続図：機器ノード');
+    const critical=issues.filter(text=>text==='接続図：機器ノード'||/文字以内|超過|超え|ID重複|接続図：接続\d|数量合計|構成ブロックは|接続は|機器が重なっています/.test(text));
+    return {state:issues.length?'draft':'ready',count:issues.length,criticalCount:critical.length,topologyRequired,text:issues.length?
+      topologyRequired?'原版の入力チェックでは「接続図：機器ノード」が不足しています。':`必要な項目を補足し、プレビューで内容を確認してください。${critical.length?'数量・接続・表示上限の確認 '+critical.length+' 件。':'未入力のままでもプレビューを確認できます。'}`:
+      '入力チェックを通過しました。提出前にプレビューで内容を確認してください。'};
+  }catch(error){return {state:'unknown',count:null,criticalCount:null,text:'入力チェックを取得できません。入力の完了は未確認です。案件に戻って開き直してください。'};}
 }
 function nvsMiiAssertSettled(session=nvsMiiSession){
   const editor=session?.frame.contentDocument?.getElementById('miiLongEditorShade');
@@ -9976,15 +10551,16 @@ async function nvsOpenMii(source=project,options={}){
   const overlay=document.createElement('div'),focus=document.activeElement;
   const embedded=!!options.host;
   overlay.className='nvsMiiOverlay'+(embedded?' nvsMiiEmbedded':'');overlay.setAttribute('role',embedded?'region':'dialog');if(!embedded)overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','診断・提案書 MII形式');
-  overlay.innerHTML=`<header class="nvsMiiHeader"><div><strong>診断・提案書 <span>MII形式</span></strong></div><div class="nvsActions">${readonly?'':nvsButton('案件ZIPを保存','mii-save','',true)}${nvsButton(readonly?'保存版を閉じる':'案件に戻る','mii-close')}</div></header><div class="nvsMiiToolbar" aria-label="入力フォームの操作"><label>入力箇所<select data-mii-section-select><option value="">移動先を選択</option>${[['baseForm','基本情報'],['imamiruForm','既設診断'],['moshimieForm','エリア調査'],['systemForm','構成図'],['equipmentForm','機器一覧']].map(([id,label])=>`<option value="${id}">${label}</option>`).join('')}</select></label><label>出力する構成<select data-mii-scenario>${Object.entries(NVS_SCENARIOS).map(([k,v])=>`<option value="${k}" ${k===scenario?'selected':''}>${v}</option>`).join('')}</select></label><div class="nvsActions nvsMiiOutputActions"><button type="button" class="nvsBtn" data-mii-control="showPreview" disabled>プレビュー</button><button type="button" class="nvsBtn nvsPrimary" data-mii-control="exportPptx" disabled>PowerPoint出力</button><button type="button" class="nvsBtn" data-mii-control="printPdf" disabled>PDF・印刷</button><details class="nvsMiiMore"><summary class="nvsBtn">その他</summary><div class="nvsMiiMorePanel"><button type="button" class="nvsBtn" data-mii-control="toggleEditorLayout" disabled>入力表示を切替</button><button type="button" class="nvsBtn" data-mii-control="exportJson" disabled>MII互換JSON出力</button><button type="button" class="nvsBtn" data-mii-control="importJson" disabled>MII互換JSON読込</button><button type="button" class="nvsBtn" data-mii-control="loadSample" disabled>サンプル読込</button><p>案件全体の保管・引継ぎは上の案件保存を使用します。</p></div></details></div></div><iframe title="MII形式の入力・プレビュー・PowerPoint出力"></iframe>`;
+  overlay.innerHTML=`<header class="nvsMiiHeader"><div><strong>診断・提案書 <span>MII形式</span></strong></div><div class="nvsActions">${readonly?'':nvsButton('案件ZIPを保存','mii-save','',true)}${nvsButton(readonly?'保存版を閉じる':'案件に戻る','mii-close')}</div></header><div class="nvsMiiToolbar" aria-label="入力フォームの操作"><label>入力箇所<select data-mii-section-select><option value="">移動先を選択</option>${[['moshimieForm','設置情報・写真'],['imamiruForm','診断・提案'],['systemForm','構成・条件'],['equipmentForm','機器一覧'],['baseForm','宛先・任意設定']].map(([id,label])=>`<option value="${id}">${label}</option>`).join('')}</select></label><label>出力する構成<select data-mii-scenario>${Object.entries(NVS_SCENARIOS).map(([k,v])=>`<option value="${k}" ${k===scenario?'selected':''}>${v}</option>`).join('')}</select></label><div class="nvsActions nvsMiiOutputActions"><button type="button" class="nvsBtn" data-mii-control="showPreview" disabled>プレビュー</button><button type="button" class="nvsBtn nvsPrimary" data-mii-control="exportPptx" disabled>PowerPoint出力</button><button type="button" class="nvsBtn" data-mii-control="printPdf" disabled>PDF・印刷</button><details class="nvsMiiMore"><summary class="nvsBtn">その他</summary><div class="nvsMiiMorePanel"><button type="button" class="nvsBtn" data-mii-control="toggleEditorLayout" disabled>入力表示を切替</button><button type="button" class="nvsBtn" data-mii-control="exportJson" disabled>MII互換JSON出力</button><button type="button" class="nvsBtn" data-mii-control="importJson" disabled>MII互換JSON読込</button><button type="button" class="nvsBtn" data-mii-control="loadSample" disabled>サンプル読込</button><p>案件全体の保管・引継ぎは上の案件保存を使用します。</p></div></details></div></div><iframe title="MII形式の入力・プレビュー・PowerPoint出力"></iframe>`;
   (options.host||document.body).appendChild(overlay);const frame=overlay.querySelector('iframe');frame.style.visibility='hidden';
   if(embedded){overlay.querySelector('[data-nvs-action="mii-close"]').remove();overlay.querySelector('[data-nvs-action="mii-save"]')?.remove();}
-  const readiness=document.createElement('div');readiness.className='nvsNotice nvsActions';readiness.dataset.miiReadiness='pending';
-  readiness.innerHTML='<span role="status" aria-live="polite">入力チェックを準備中…</span><button type="button" class="nvsBtn" data-nvs-action="mii-issues" hidden>不足項目を確認</button><p data-mii-wire-notice role="status" hidden></p><p data-mii-sync role="status">入力フォームを準備中…</p>';
+  const readiness=document.createElement('div');readiness.className='nvsNotice nvsMiiCheck';readiness.dataset.miiReadiness='pending';
+  readiness.style.cssText='padding:8px 20px;background:#f8fbf8;color:#536b5c;font-size:12px';
+  readiness.innerHTML='<details data-mii-check-details><summary style="cursor:pointer;font-weight:600;min-height:24px;line-height:24px">提出前の確認を準備中…</summary><div class="nvsActions" style="padding:8px 0"><span role="status" aria-live="polite">入力チェックを準備中…</span><button type="button" class="nvsBtn" data-nvs-action="mii-issues" hidden>確認候補を見る</button></div><p style="margin:4px 0 8px">プレビューのチェック表示は現地確認の完了を示しません。</p></details><p data-mii-topology-guide role="status" hidden>このままではPowerPointを出力できません。図面の機器・配線から接続候補を確認してください。 <button type="button" class="nvsBtn" data-nvs-action="mii-topology">接続図を作る</button></p><p data-mii-wire-notice role="status" hidden></p><p data-mii-sync role="status">入力フォームを準備中…</p>';
   overlay.insertBefore(readiness,frame);
   const readinessText=readiness.querySelector('span'),issuesButton=readiness.querySelector('button');
   const scenarioSelect=overlay.querySelector('[data-mii-scenario]');scenarioSelect.disabled=true;
-  const refreshReadiness=()=>{const result=nvsMiiReadiness(frame.contentWindow?.MII_TEST);readiness.dataset.miiReadiness=result.state;if(readinessText.textContent!==result.text)readinessText.textContent=result.text;issuesButton.hidden=result.state!=='draft';const wireNotice=readiness.querySelector('[data-mii-wire-notice]'),count=nvsMiiWireWarnings(source,session.scenario).items.length;wireNotice.hidden=!count;const wireText=count?'施工配線が見つからない旧接続 '+count+'件。出力にも注意を記載します。「設計」で対応配線を確認してください。':'';if(wireNotice.textContent!==wireText)wireNotice.textContent=wireText;session.refreshToolbar?.();return result;};
+  const refreshReadiness=()=>{const result=nvsMiiReadiness(frame.contentWindow?.MII_TEST),details=readiness.querySelector('details'),summary=details.querySelector('summary'),critical=result.state==='unknown'||result.criticalCount>0;const summaryText=result.state==='unknown'?'入力チェックを確認できません':result.topologyRequired?'出力前に接続図を作成（'+result.count+'件）':result.criticalCount?'数量・接続・表示上限を確認（'+result.criticalCount+'件）':result.count?'提出前の確認候補（'+result.count+'件）':'提出前の確認';if(summary.textContent!==summaryText)summary.textContent=summaryText;if(critical&&(!result.topologyRequired||result.criticalCount>1)&&details.dataset.critical!==summaryText)details.open=true;details.dataset.critical=critical?summaryText:'';readiness.style.background=critical?'#fff5df':'#f8fbf8';readiness.dataset.miiReadiness=result.state;if(readinessText.textContent!==result.text)readinessText.textContent=result.text;issuesButton.hidden=result.state!=='draft';const topologyGuide=readiness.querySelector('[data-mii-topology-guide]');topologyGuide.hidden=readonly||!result.topologyRequired;const wireNotice=readiness.querySelector('[data-mii-wire-notice]'),warnings=nvsMiiWireWarnings(source,session.scenario).items,missingCount=warnings.filter(item=>!item.notice).length,unresolvedCount=warnings.length-missingCount;wireNotice.hidden=!warnings.length;const wireText=[missingCount?'施工配線が見つからない旧接続 '+missingCount+'件。出力にも注意を記載します。「設計」で対応配線を確認してください。':'',unresolvedCount?nvsUnresolvedWireNotice(source)+'提案書にも確認事項を載せます。':''].filter(Boolean).join(' ');if(wireNotice.textContent!==wireText)wireNotice.textContent=wireText;session.refreshToolbar?.();return result;};
   let last=null,timer=null,poll=null,failed=false,loadTimer=null,finishLoad=null,outputStamp=null;const message=overlay.querySelector('[data-mii-sync]');
   const showMessage=(text,attention=false)=>{message.textContent=text;message.hidden=embedded&&!attention;};
   const session={frame,overlay,host:options.host,owner:source,scenario,ready:false,closed:false,suspended:false,
@@ -10024,7 +10600,7 @@ async function nvsOpenMii(source=project,options={}){
     },
     dispose(){
       if(session.closed)return;session.closed=true;clearTimeout(timer);clearInterval(poll);clearTimeout(loadTimer);finishLoad?.(false);frame.onload=null;
-      session.cleanupToolbar?.();session.cleanupImport?.();session.cleanupPrint?.();document.removeEventListener('keydown',key,true);window.removeEventListener('beforeunload',unload);overlay.remove();if(nvsMiiSession===session)nvsMiiSession=null;
+      session.cleanupToolbar?.();session.cleanupForm?.();session.cleanupImport?.();session.cleanupPrint?.();document.removeEventListener('keydown',key,true);window.removeEventListener('beforeunload',unload);overlay.remove();if(nvsMiiSession===session)nvsMiiSession=null;
     },
     close(opts={}){nvsMiiAssertSettled(session);nvsMiiAssertPhotosSettled(session);session.flush();session.dispose();if(opts.render!==false&&nvsOverlay)nvsRender();if(opts.restoreFocus!==false&&focus?.isConnected)focus.focus();return true;}};
   nvsMiiSession=session;
@@ -10035,13 +10611,20 @@ async function nvsOpenMii(source=project,options={}){
   overlay.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;e.stopPropagation();try{
     if(b.dataset.nvsAction==='mii-close')session.close();
     if(b.dataset.nvsAction==='mii-save')void nvsSave();
+    if(b.dataset.nvsAction==='mii-topology'){
+      if(readonly||source!==project||!refreshReadiness().topologyRequired)return;
+      nvsMiiAssertSettled(session);nvsMiiAssertPhotosSettled(session);session.flush();
+      const targetScenario=session.scenario;if(!embedded)session.close({render:false,restoreFocus:false});
+      nvsView.scenario=targetScenario;if(!nvsOverlay)nvsOpen('design');nvsPlotReview();
+      nvsOverlay?.querySelector('[data-nvs-action="plot-apply"]')?.focus({preventScroll:true});return;
+    }
     if(b.dataset.nvsAction==='mii-issues'){
       if(!session.ready||refreshReadiness().state!=='draft')return;
       const doc=frame.contentDocument;if(doc.body.classList.contains('previewOnly'))doc.getElementById('showPreview').click();
       const status=doc.getElementById('status');if(status.getAttribute('aria-expanded')!=='true')status.click();
       (doc.querySelector('.v1929IssuePopup .v1929IssueItem')||status).focus({preventScroll:true});
     }
-    if(b.dataset.miiSection){const doc=frame.contentDocument;if(doc.body.classList.contains('previewOnly'))doc.getElementById('showPreview').click();doc.getElementById(b.dataset.miiSection)?.scrollIntoView({behavior:'smooth',block:'start'});}
+    if(b.dataset.miiSection){const doc=frame.contentDocument;if(doc.body.classList.contains('previewOnly'))doc.getElementById('showPreview').click();(session.showFormSection?.(b.dataset.miiSection)||doc.getElementById(b.dataset.miiSection))?.scrollIntoView({behavior:'smooth',block:'start'});}
   }catch(error){showMessage(error.message,true);}});
   overlay.querySelector('[data-mii-scenario]').addEventListener('change',e=>{try{nvsMiiAssertSettled(session);session.flush();const result=nvsMiiProject(source,e.target.value),api=frame.contentWindow.MII_TEST;if(result.scenario!==session.scenario){session.invalidateMiiImport?.();api.nvsResetTopologyHistory();}api.setProject(result.data,{preservePhotoOwner:true});session.scenario=result.scenario;last=api.getProject();const n=nvsEnsure(source);n.mii={...n.mii,project:nvsClone(last),scenario:session.scenario,baseline:nvsMiiProjection(source,session.scenario)};if(!readonly)markDirty();}catch(error){e.target.value=session.scenario;showMessage(error.message,true);}refreshReadiness();});
   try{
@@ -10054,6 +10637,7 @@ async function nvsOpenMii(source=project,options={}){
     win.__nvsMiiWireWarnings=()=>nvsMiiWireWarnings(source,session.scenario);
     win.__nvsMiiEquipmentQuantity=id=>id?nvsMiiEquipment(source).find(row=>row.reportKey===id)?.quantity??null:undefined;
     win.__nvsMiiTopologyQuantity=node=>{const binding=nvsMiiTopologyBinding(source,session.scenario,node);if(!binding)return undefined;const info=nvsNodeInfo({...node,assetKeys:binding.assetKeys},source);return info.linked.length?info.qty:undefined;};
+    win.__nvsMiiNodePlacementModels=node=>nvsMiiNodePlacementModels(source,session.scenario,node);
     win.__nvsMiiAssertTopologyQuantity=()=>nvsMiiAssertTopologyQuantities(source,session.scenario);
     api.setProject(nvsMiiProject(source,session.scenario).data);last=api.getProject();outputStamp=nvsMiiOutputStamp(source);
     const n=nvsEnsure(source);n.mii={...n.mii,schemaVersion:1,project:nvsClone(last),scenario:session.scenario,excludedEquipment:n.mii?.excludedEquipment||[]};n.mii.baseline=nvsMiiProjection(source,session.scenario);
@@ -10085,7 +10669,7 @@ async function nvsOpenMii(source=project,options={}){
     for(const event of ['input','change','click','pointerup','keyup','drop','paste'])doc.addEventListener(event,schedule,true);
     doc.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();e.stopPropagation();if(!readonly)void nvsSave();}},true);
     // 原版の非同期写真処理・構成図編集の完了も検出する。
-    if(!session.suspended)poll=setInterval(safeFlush,900);session.ready=true;session.cleanupImport=nvsMiiInstallImport(session,{readonly});nvsMiiInstallDownload(session,options.sourceVersion);session.cleanupPrint=nvsMiiInstallPrint(session,options.sourceVersion);scenarioSelect.disabled=false;session.cleanupToolbar=nvsMiiInstallToolbar(session);frame.style.visibility='';refreshReadiness();if(!readonly)markDirty();
+    if(!session.suspended)poll=setInterval(safeFlush,900);session.ready=true;session.cleanupImport=nvsMiiInstallImport(session,{readonly});nvsMiiInstallDownload(session,options.sourceVersion);session.cleanupPrint=nvsMiiInstallPrint(session,options.sourceVersion);scenarioSelect.disabled=false;session.cleanupForm=nvsMiiInstallProposalForm(session);session.cleanupToolbar=nvsMiiInstallToolbar(session);frame.style.visibility='';refreshReadiness();if(!readonly)markDirty();
     showMessage(readonly?'保存版の作業用コピー（現在の案件は変更しません）':'案件の情報と連動 · 写真・編集内容も案件ZIPに保存されます');
     if(options.preview)doc.getElementById('showPreview').click();
     if(options.pptx)doc.getElementById('exportPptx').click();
@@ -10112,7 +10696,7 @@ function nvsMiiInstallToolbar(session){
     doc.getElementById(button.dataset.miiControl)?.click();refresh();
   };
   const jump=()=>{
-    const target=doc.getElementById(section.value);if(!target)return;
+    const target=session.showFormSection?.(section.value)||doc.getElementById(section.value);if(!target)return;
     if(doc.body.classList.contains('previewOnly'))doc.getElementById('showPreview').click();
     target.scrollIntoView({behavior:'smooth',block:'start'});section.value='';refresh();
     // 移動先を選んだ直後からキーボードで入力できるよう、原版内の入力位置も移す。
