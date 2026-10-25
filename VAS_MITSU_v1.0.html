@@ -3666,6 +3666,7 @@ function cancelDrawing(){
 }
 function finishScaleTap(p1, p2){
   const pxDist = Math.hypot(p2.x-p1.x, p2.y-p1.y);
+  if(!Number.isFinite(pxDist)||pxDist<=0){ui.scaleTemp=[p1];toast('同じ点です。離れた2点目を選んでください。','warn');scheduleRender();return Promise.resolve(null);}
   ui.mode = 'select-pending-scale';
   return scaleModal(pxDist).then(meters=>{
     const floor = currentFloor();
@@ -5667,6 +5668,7 @@ function quoteRemarksLines(){
   const lines = ['図面・機器構成と算定条件をご確認ください。','正式な金額・納入条件は、現地調査・仕様確定後に別途お見積りします。'];
   if(project.priceMode==='useOnly') lines.push('ユース（機器貸与）前提の金額です。機器本体費は含みません。');
   const pending=nvsUnpriced();if(pending.length)lines.push(`未算定の機器・部材${pending.length}件は、この大概算に含まれていません。`);
+  if(project.floors.some(f=>f.wires.length&&f.scale?.mPerPx==null))lines.push('縮尺未設定のフロアの配線費は、この大概算に含まれていません。');
   return lines;
 }
 function quoteIssuerBlocks(){
@@ -6718,6 +6720,7 @@ function buildCsvContent(project){
   lines.push(['','(参考)税込','','',totals.total].map(NEXT_PURE.toCsvField).join(','));
   lines.push(['','※金額は円単位で四捨五入して集計しています。','','',''].map(NEXT_PURE.toCsvField).join(','));
   const pending=nvsUnpriced(project);if(pending.length)lines.push(['注意',`未算定の機器・部材${pending.length}件は金額に含まれていません`].map(NEXT_PURE.toCsvField).join(','));
+  if(project.floors.some(f=>f.wires.length&&f.scale?.mPerPx==null))lines.push(['注意','縮尺未設定のフロアの配線費は金額に含まれていません'].map(NEXT_PURE.toCsvField).join(','));
   return '﻿' + lines.join('\r\n');
 }
 async function exportCsv(){
@@ -8800,7 +8803,7 @@ function nvsMappedAssetView(r,index){
   return `<article class="nvsEntry"><strong>${a(r.name||'名称未記入')}</strong><p class="nvsHint">${target?'対応済み: '+a(nvsAssetDisplayName(target)):'対応先の配置機器がありません。対応を解除または再設定してください。'}</p><p class="nvsHint">現在の機器情報は「配置・納入情報を編集」から変更します。候補時の記録は保持し、この行の費用は加算しません。増設する機器は別の候補として追加してください。</p>${issue?`<p class="nvsNotice">${a(issue)}</p>`:''}<div class="nvsActions">${target?nvsButton('配置・納入情報を編集','jump-device',r.mappedTo):''}${nvsButton('既存の配置機器と対応付け','map-asset',String(index))}${nvsButton('配置機器との対応を解除','unmap-asset',String(index))}</div><details><summary>候補時の記録を確認</summary>${rows.filter(([,value])=>value!=null&&value!=='').map(([label,value])=>`<p class="nvsHint" style="white-space:pre-wrap"><b>${a(label)}:</b> ${a(String(value))}</p>`).join('')}${nvsButton('候補記録を削除','delete','nvs.assets.'+index)}</details></article>`;
 }
 function nvsExtraAssetsView(){const n=nvsEnsure();return nvsCard('候補の機器・部材',`<p class="nvsHint">診断対象・流用品・サービス等も登録できます。数量や単価は明示入力し、図面に配置した分は台帳を対応付けます。</p>`+n.assets.map((r,i)=>{const p=`nvs.assets.${i}`;if(r.mappedTo)return nvsMappedAssetView(r,i);return `<article class="nvsEntry"><div class="nvsGrid">${nvsField('名称',p+'.name')}${nvsField('種類',p+'.type','select',NVS_NODE_TYPES)}${nvsField('数量',p+'.quantity','number')}${nvsField('利用区分',p+'.status','select',['要確認','新設','流用','移設','支給','対象外'])}${nvsField('型番',p+'.model')}${nvsField('場所',p+'.location')}${nvsField('IPアドレス',p+'.ipAddress')}${nvsField('シリアル番号',p+'.serialNumber')}${nvsField('用途・備考',p+'.note','textarea')}</div>${r.importQuantityPending?'<p class="nvsNotice">MIIの機器一覧には確定数量がありません。数量は仮の1です。数量を確認して入力してください。</p>':''}<div class="nvsActions">${nvsButton('既存の配置機器と対応付け','map-asset',String(i))}${nvsButton('現在フロアに1台追加','place-asset',String(i))}<span data-nvs-split-action="${i}">${(r.quantity||0)>1?nvsButton('1台ずつの機器に分ける','split-asset',String(i)):''}</span>${r.mappedTo?nvsButton('配置機器との対応を解除','unmap-asset',String(i)):''}${nvsButton('機器・部材を削除','delete',p)}</div>${r.mappedTo?`<p class="nvsHint">配置機器へ対応済み: ${escapeHtml(r.mappedTo)}（この行の費用は加算しません）</p>`:''}</article>`;}).join(''),nvsButton('機器・部材を追加','add','assets'));}
-function nvsCostNotice(pending){return '予算検討用の大概算です。正式見積ではありません。'+(pending?'未算定分は現在の金額に含まれていません。':'');}
+function nvsCostNotice(pending){const unscaled=project.floors.some(f=>f.wires.length&&f.scale?.mPerPx==null);return '予算検討用の大概算です。正式見積ではありません。'+(unscaled?'縮尺未設定のフロアの配線費は金額に含まれていません。図面で縮尺を設定してください。':'')+(pending?'未算定分は現在の金額に含まれていません。':'');}
 function nvsCostView(){const total=NEXT_PURE.calcTotals(project),n=nvsEnsure(),unpriced=nvsUnpriced(),residual=nvsUnresolvedWireNotice(project);return `<div class="nvsSummary"><div><span>案件全体の大概算（税込）</span><strong>¥${total.total.toLocaleString()}</strong></div><div><span>未算定の機器・部材</span><strong>${unpriced.length}件</strong></div></div><p class="nvsNotice" data-nvs-cost-notice>${nvsCostNotice(unpriced.length)}</p>${residual?`<p class="nvsNotice" data-nvs-residual-wire>${escapeHtml(residual)}</p>`:''}`+
     nvsCard('配置機器の見積対象',`<p class="nvsHint">本体費と取付費を個別に選べます。設定費は既存の設定台数で別に指定します。ユースのみ設定では本体費は加算しません。</p>`+project.floors.map((f,fi)=>f.devices.map((d,di)=>{const p=`floors.${fi}.devices.${di}.costScope`;return `<div class="nvsAssetRow"><div><strong>${escapeHtml(nvsDeviceDisplayName(f,d))}</strong><p>${escapeHtml(d.location||f.name)}</p></div><div class="nvsActions">${nvsCostCheckbox('本体費',p+'.body',d.costScope?.body!==false)}${nvsCostCheckbox('取付費',p+'.install',d.costScope?.install!==false)}</div></div>`;}).join('')).join(''),nvsButton('単価・設定台数・内訳を開く','legacy-cost'))+
     nvsCard('未配置機器・部材の費用',n.assets.map((a,i)=>{const p=`nvs.assets.${i}`;return `<article class="nvsEntry"><strong>${escapeHtml(a.name||'名称未記入')}</strong>${nvsMappedQuantityIssue(a)?`<p class="nvsNotice">${escapeHtml(nvsMappedQuantityIssue(a))}</p>`:''}${a.mappedTo||a.status==='対象外'?'<p>配置側で算定、または対象外です。</p>':`<div class="nvsGrid">${nvsField('本体費の対象数量（空欄＝機器・部材の数量）',p+'.bodyQty','number')}${nvsField('本体単価（空欄＝未算定）',p+'.bodyUnit','number')}${nvsField('取付費の対象数量（空欄・0＝計上なし）',p+'.installQty','number')}${nvsField('取付単価（空欄＝未算定）',p+'.installUnit','number')}</div>`}</article>`;}).join('')||nvsEmpty('設計画面で未配置の機器・部材を登録できます。'))+
@@ -8845,8 +8848,8 @@ function nvsOpen(tab='mii'){
     if(nvsView.tab==='design'&&(path.startsWith('nvs.topology.')||path.startsWith('nvs.assets.'))){nvsRefreshDesignReferences(el);if(e.type==='change'){const graph=el.querySelector('.nvsGraph');if(graph)graph.innerHTML=nvsGraphSvg(project,nvsView.scenario,true);}}
   };
   el.addEventListener('input',edit);el.addEventListener('change',edit);
-  el.addEventListener('toggle',e=>{const entry=e.target;if(el._owner!==project||!entry.matches?.('details[data-nvs-area-id]'))return;const ids=nvsOpenAreaIds(),id=entry.dataset.nvsAreaId;if(entry.open)ids.add(id);else ids.delete(id);},true);
-  el.addEventListener('click',e=>{const b=e.target.closest('[data-nvs-action]');if(!b||el._owner!==project)return;void nvsAction(b.dataset.nvsAction,b.dataset.nvsArg||'').catch(error=>toast(error.message,'warn'));});
+  el.addEventListener('toggle',e=>{if(el._owner!==project)return;if(nvsPlotViewToggle(e))return;const entry=e.target;if(!entry.matches?.('details[data-nvs-area-id]'))return;const ids=nvsOpenAreaIds(),id=entry.dataset.nvsAreaId;if(entry.open)ids.add(id);else ids.delete(id);},true);
+  el.addEventListener('click',e=>{const b=e.target.closest('[data-nvs-action]');if(!b||el._owner!==project)return;if(b.dataset.nvsAction.startsWith('plot-')&&(!b.isConnected||!el.contains(b)||!nvsPlotActionCurrent(b)))return;void nvsAction(b.dataset.nvsAction,b.dataset.nvsArg||'').catch(error=>toast(error.message,'warn'));});
   el._key=e=>{if(e.isComposing||e.keyCode===229||e.defaultPrevented)return;if(document.querySelector('.modalOverlay.show')||document.querySelector('.nvsReportOverlay,.nvsMiiOverlay:not(.nvsMiiEmbedded)')||(e.key==='Escape'&&el.querySelector('.nvsMiiMore[open]')))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();e.stopPropagation();void nvsSave();}else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();void nvsRequestClose().catch(error=>toast(error.message,'warn'));}else trapNotesFocus(e,el);};document.addEventListener('keydown',el._key,true);
   let drag=null;el.addEventListener('pointerdown',e=>{const node=e.target.closest('[data-nvs-node]');if(!node)return;const svg=node.closest('svg'),g=nvsEnsure().topology[nvsView.scenario],item=g.nodes.find(x=>x.id===node.dataset.nvsNode);if(!item)return;drag={item,svg,node,owner:project};node.setPointerCapture?.(e.pointerId);e.preventDefault();});
   el.addEventListener('pointermove',e=>{if(!drag||drag.owner!==project)return;const vb=drag.svg.viewBox.baseVal,point=drag.svg.createSVGPoint();point.x=e.clientX;point.y=e.clientY;const local=point.matrixTransform(drag.svg.getScreenCTM().inverse());drag.item.x=Math.max(0,Math.min(vb.width-190,local.x-90));drag.item.y=Math.max(0,Math.min(vb.height-90,local.y-40));drag.node.setAttribute('transform',`translate(${drag.item.x},${drag.item.y})`);});
@@ -8870,7 +8873,7 @@ async function nvsRequestClose(){
   }
   nvsClose();return true;
 }
-function nvsClose(){const el=nvsOverlay;if(!el)return;if(nvsMiiSession?.host){nvsMiiAssertSettled();nvsMiiAssertPhotosSettled();if(nvsMiiSession.owner===project)nvsMiiSession.flush();nvsMiiSession.dispose();}document.removeEventListener('keydown',el._key,true);el.remove();nvsOverlay=null;refreshAll();if(el._returnFocus?.isConnected)el._returnFocus.focus();}
+function nvsClose(){const el=nvsOverlay;if(!el)return;if(nvsMiiSession?.host){nvsMiiAssertSettled();nvsMiiAssertPhotosSettled();if(nvsMiiSession.owner===project)nvsMiiSession.flush();nvsMiiSession.dispose();}document.removeEventListener('keydown',el._key,true);el.remove();nvsOverlay=null;nvsPlotDraft=null;refreshAll();if(el._returnFocus?.isConnected)el._returnFocus.focus();}
 function nvsAdd(kind){const n=nvsEnsure(),base={id:nvsId()};if(kind==='meetings')n.meetings.push({...base,date:nvsToday(),participants:'',note:'',nextAction:''});
   if(kind==='areas'){n.areas.push({...base,name:'',floorId:'',status:'todo',grade:'',current:'',demo:'',position:'',height:'',count:'',policy:'',assetKeys:[],photoIds:[]});nvsOpenAreaIds().add(base.id);}
   if(kind==='diagnostics')n.diagnostics.push({...base,category:'追加診断',target:'',status:'todo',grade:'',priority:'未設定',finding:'',risk:'',proposal:'',photoIds:[],assetKeys:[]});
@@ -8881,9 +8884,10 @@ function nvsAdd(kind){const n=nvsEnsure(),base={id:nvsId()};if(kind==='meetings'
   const field=index>=0?nvsOverlay?.querySelector('[data-nvs-path^="nvs.'+kind+'.'+index+'."]'):null;
   if(field){field.focus({preventScroll:true});field.scrollIntoView({block:'nearest',behavior:'smooth'});}
 }
-async function nvsAction(action,arg){if(nvsMiiSession?.host&&!action.startsWith('mii-'))nvsMiiAssertSettled();if(!['close','plot'].includes(action)&&!nvsRequireValidPendingInput())return;const n=nvsEnsure(),owner=project;
+async function nvsAction(action,arg){if(nvsMiiSession?.host&&!action.startsWith('mii-'))nvsMiiAssertSettled();if(!['close','plot','plot-cancel','plot-skip'].includes(action)&&!nvsRequireValidPendingInput())return;const n=nvsEnsure(),owner=project;
   if(action==='plot-review'){nvsPlotReview();return;}
   if(action==='plot-apply'){nvsPlotApply();return;}
+  if(action==='plot-skip'){nvsPlotSkip();return;}
   if(action==='plot-undo'){nvsPlotUndoApply();return;}
   if(action==='plot-cancel'){nvsPlotDraft=null;nvsRender();return;}
   if(action==='mii-design'){await nvsOpenMii(project,{scenario:nvsView.scenario});return;}
@@ -9010,13 +9014,14 @@ function nvsRestorePlacementHistory(snap){
 }
 async function nvsMapAsset(index){const owner=project,n=nvsEnsure(),asset=n.assets[index],options=nvsAssets().filter(a=>a.floor);if(!asset)return;if((asset.quantity??1)!==1)throw new Error('数量グループは1台ずつの機器へ分けてから対応付けてください');if(!options.length)throw new Error('配置済み機器がありません');const choice=await promptModal('対応する配置機器の番号\n'+options.map((a,i)=>`${i+1}: ${nvsAssetDisplayName(a)} / ${a.location}`).join('\n'),'1');if(choice==null)return;const target=options[Number(choice)-1];if(!target)throw new Error('一覧から番号を選んでください');if(project!==owner||n.assets[index]!==asset)return;if(n.assets.some(a=>a!==asset&&a.mappedTo===target.key))throw new Error('この配置機器には既に別の行が対応しています');nvsRepoint('asset:'+asset.id,target.key);asset.mappedTo=target.key;markDirty();nvsRender();}
 async function nvsPlaceAsset(index){const owner=project,n=nvsEnsure(),a=n.assets[index];if(!a)return;if(a.mappedTo)throw new Error('既に配置機器へ対応しています');if((a.quantity??1)!==1)throw new Error('数量グループは1台ずつの機器へ分けてから配置してください');const keys=Object.keys(project.pricing.devices);const input=await promptModal('配置後は選んだ分類の単価で積算します（未配置時の単価は適用しません）。\n'+keys.map((k,i)=>`${i+1}: ${project.pricing.devices[k].label} / 本体¥${project.pricing.devices[k].price||0}・取付¥${project.pricing.devices[k].install||0}`).join('\n'),'1');if(input==null)return;const type=keys[Number(input)-1];if(!type)throw new Error('一覧の番号を入力してください');if(project!==owner||n.assets[index]!==a)return;const floor=currentFloor(),before=a.mappedTo||'',hadMappedTo=Object.hasOwn(a,'mappedTo');const d=placeDevice(type,{x:floor.img?.width/2||300,y:floor.img?.height/2||250},{deferRefresh:true});Object.assign(d,{model:a.model||'',location:a.location||'',ipAddress:a.ipAddress||'',serialNumber:a.serialNumber||'',annotation:a.name||'',costScope:{body:!['流用','移設','支給','対象外'].includes(a.status),install:a.status!=='対象外'}});a.mappedTo=nvsDeviceKey(floor,d);Object.defineProperty(undoStacks[floor.id].at(-1),'_nvsPlacement',{value:{assetId:a.id,deviceKey:a.mappedTo,before,hadMappedTo,placed:false},configurable:true});nvsRepoint('asset:'+a.id,a.mappedTo);if(nvsOverlay)nvsClose();else refreshAll();selectObj('device',d,'record');revealSelectedDevice();toast('配置しました。正しい位置へ移動してください','ok');}
-function nvsGraphSvg(p,scenario,interactive=false){const g=nvsEnsure(p).topology[scenario]||{nodes:[],links:[]},a=escapeHtml,w=Math.max(1020,...g.nodes.map(n=>(n.x||0)+210)),h=Math.max(320,...g.nodes.map(n=>(n.y||0)+145));const colors={lan:'#18765c',power:'#bc6a25',hdmi:'#5863a3',wifi:'#378292',other:'#77817c'};
+function nvsGraphSvg(p,scenario,interactive=false){const g=interactive?(nvsEnsure(p).topology[scenario]||{nodes:[],links:[]}):nvsProposalOutput(p,scenario).graph,a=escapeHtml,w=Math.max(1020,...g.nodes.map(n=>(n.x||0)+210)),h=Math.max(320,...g.nodes.map(n=>(n.y||0)+145))+Math.max(0,...nvsPlotParallelGroups(g).map(rows=>(rows.length-1)*16));const colors={lan:'#18765c',power:'#bc6a25',hdmi:'#5863a3',wifi:'#378292',other:'#77817c'},activeIds=interactive?new Set(nvsProposalOutput(p,scenario,g).graph.links.map(l=>l.id)):null;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-label="${a(NVS_SCENARIOS[scenario])}接続構成図" role="img"><defs><marker id="nvsArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8" fill="#60766b"/></marker></defs><rect width="100%" height="100%" fill="#f5f8f5"/>${g.links.map(l=>{const s=g.nodes.find(n=>n.id===l.from),t=g.nodes.find(n=>n.id===l.to);if(!s||!t)return '';const sx=s.x||0,sy=s.y||0,tx=t.x||0,ty=t.y||0,dx=tx-sx,dy=ty-sy;let path,lx,ly;
     if(Math.abs(dy)<100){const y=Math.max(sy,ty)+114;path=`M${sx+95} ${sy+86} V${y} H${tx+95} V${ty+86}`;lx=(sx+tx)/2+95;ly=y-7;}
     else if(Math.abs(dx)<210){const down=dy>0,x=(sx+tx)/2+95,y=(sy+ty)/2+43;path=`M${sx+95} ${sy+(down?86:0)} V${y} H${tx+95} V${ty+(down?0:86)}`;lx=x+85;ly=y-7;}
     else {const right=dx>0,x1=sx+(right?190:0),x2=tx+(right?0:190),mid=(x1+x2)/2;path=`M${x1} ${sy+43} H${mid} V${ty+43} H${x2}`;lx=mid;ly=(sy+ty)/2+36;}
-    const text=String(l.label||NVS_LINK_TYPES[l.kind]||l.kind||''),short=text.length>26?text.slice(0,25)+'…':text;
-    return `<path d="${path}" stroke="${colors[l.kind]||colors.other}" fill="none" stroke-width="2" ${l.direction!=='none'?'marker-end="url(#nvsArrow)"':''} ${l.direction==='both'?'marker-start="url(#nvsArrow)"':''}/><text x="${lx}" y="${ly}" text-anchor="middle" font-size="11" fill="#344a3e" stroke="#f5f8f5" stroke-width="3" paint-order="stroke"><title>${a(text)}</title>${a(short)}</text>`;}).join('')}${g.nodes.map(n=>{const info=nvsNodeInfo(n,p),label=info.name.length>19?info.name.slice(0,18)+'…':info.name;return `<g ${interactive?`data-nvs-node="${a(n.id)}"`:''} transform="translate(${n.x||0},${n.y||0})"><title>${a(info.name+' / '+(n.location||'')+' / '+info.qty+'台')}</title><rect width="190" height="86" rx="10" fill="white" stroke="#b8cbbf"/><rect width="5" height="86" rx="2" fill="#19664e"/><text x="16" y="23" font-size="11" fill="#678172">${a(NVS_NODE_TYPES[n.type]||n.type||'')} / ${info.qty}台</text><text x="16" y="45" font-size="13" font-weight="bold" fill="#183d2d">${a(label)}</text><text x="16" y="67" font-size="10" fill="#617669">${a((n.location||info.linked[0]?.location||'場所未記入').slice(0,24))}</text></g>`;}).join('')}${!g.nodes.length?'<text x="30" y="55" fill="#6c8274" font-size="18">接続ブロックを追加すると構成図が表示されます</text>':''}</svg>`;
+    const group=nvsPlotParallelGroups(g).find(rows=>rows.includes(l)),current=interactive&&group?group.filter(row=>activeIds.has(row.id)):group,history=interactive&&!activeIds.has(l.id),index=history?(current?.length||0)+(group?.filter(row=>!activeIds.has(row.id)).indexOf(l)||0):current?current.indexOf(l):0;ly+=index*16;
+    const text=(history?'履歴 ':current?.length>1?(index+1)+'/'+current.length+' ':'')+String(l.label||NVS_LINK_TYPES[l.kind]||l.kind||''),short=text.length>26?text.slice(0,25)+'…':text,title=interactive?text+' / 接続ID '+String(l.id||'未設定')+' / 元配線 '+(l.wireKeys?.length?l.wireKeys:[l.wireKey]).filter(Boolean).join(', '):text;
+    return `<path d="${path}" stroke="${colors[l.kind]||colors.other}" fill="none" stroke-width="2" ${['forward','both'].includes(l.direction)?'marker-end="url(#nvsArrow)"':''} ${l.direction==='both'?'marker-start="url(#nvsArrow)"':''}/><text x="${lx}" y="${ly}" text-anchor="middle" font-size="11" fill="#344a3e" stroke="#f5f8f5" stroke-width="3" paint-order="stroke"><title>${a(title)}</title>${a(short)}</text>`;}).join('')}${g.nodes.map(n=>{const info=nvsNodeInfo(n,p),label=info.name.length>19?info.name.slice(0,18)+'…':info.name;return `<g ${interactive?`data-nvs-node="${a(n.id)}"`:''} transform="translate(${n.x||0},${n.y||0})"><title>${a(info.name+' / '+(n.location||'')+' / '+info.qty+'台')}</title><rect width="190" height="86" rx="10" fill="white" stroke="#b8cbbf"/><rect width="5" height="86" rx="2" fill="#19664e"/><text x="16" y="23" font-size="11" fill="#678172">${a(NVS_NODE_TYPES[n.type]||n.type||'')} / ${info.qty}台</text><text x="16" y="45" font-size="13" font-weight="bold" fill="#183d2d">${a(label)}</text><text x="16" y="67" font-size="10" fill="#617669">${a(String(n.location||info.linked[0]?.location||'場所未記入').slice(0,24))}</text></g>`;}).join('')}${!g.nodes.length?'<text x="30" y="55" fill="#6c8274" font-size="18">接続ブロックを追加すると構成図が表示されます</text>':''}</svg>`;
 }
 
 // 同じ資料モデルからプレビューと編集可能なPPTXを作る。本文を切り捨てず続頁へ送る。
@@ -9034,8 +9039,8 @@ function nvsReportSections(p,kind){const n=nvsEnsure(p),sections=[],customer=['p
   if(kind==='survey')for(const f of p.floors){const s=mergeFloorSurvey(f.survey);add('現地の施工条件（内部）',[f.name+' / '+s.date+' / '+s.surveyor,...surveyRows(f,p.pricing).map(r=>r.label+' / '+SURVEY_STATUS[r.status]+' / '+r.note)]);}
   if(['cost','work','completion','aftercare'].includes(kind)){add('対象範囲・基準',['正式見積・受注番号: '+n.order.number,'受注日: '+n.order.date,'対象範囲: '+n.order.scope,'対象外: '+n.order.exclusions,'基準版: '+(n.milestones.find(m=>m.id===n.order.baselineId)?.label||n.order.baselineLabel||'未指定')]);}
   if(kind==='cost'){
-    const totals=NEXT_PURE.calcTotals(p);
-    add('大概算の条件',['予算検討用の大概算です。正式見積ではありません。','税込: ¥'+totals.total.toLocaleString(),'税抜: ¥'+totals.pretax.toLocaleString(),NEXT_PURE.priceModeLabel(p.priceMode),...nvsIssues(p)]);
+    const totals=NEXT_PURE.calcTotals(p),costIssues=nvsIssues(p);
+    add('大概算の条件',['予算検討用の大概算です。正式見積ではありません。','税込: ¥'+totals.total.toLocaleString(),'税抜: ¥'+totals.pretax.toLocaleString(),NEXT_PURE.priceModeLabel(p.priceMode),...(p.floors.some(f=>f.wires.length&&f.scale?.mPerPx==null)&&!costIssues.some(issue=>issue.includes('縮尺未設定の配線は費用未計上です。'))?['縮尺未設定のフロアの配線費は、この大概算に含まれていません。']:[]),...costIssues]);
     // 通常明細の順序・単価精度を保ち、オプションとランク調整は既存見積の追加行を共用する。
     const quote=NEXT_PURE.buildQuoteSections(totals),extras=quote.constructionItems.slice(totals.rows.filter(r=>r.section==='construction').length);
     add('大概算の内訳',[
@@ -9110,13 +9115,18 @@ function nvsGraphDetailPages(p,graph){
 }
 async function nvsPrepareReport(kind,source=project,options={}){
   if(!NVS_REPORTS[kind])throw new Error('資料の種類が不明です');const data=nvsClone(serializeProject(source)),p=buildProjectFromData(data),pages=nvsReportPages(p,kind,options.sourceVersion);const scenario=['completion','aftercare'].includes(kind)?'asbuilt':kind==='diagnosis'?'current':'proposed';
-  const graph=nvsEnsure(p).topology[scenario];
-  if(graph.nodes.length){
+  const stored=nvsEnsure(p).topology[scenario],output=nvsProposalOutput(p,scenario,stored),graph=output.graph;
+  if(graph.nodes.length||output.links.size){
     const svg=nvsGraphSvg(p,scenario),src='data:image/svg+xml;base64,'+nvsBytesToBase64(new TextEncoder().encode(svg)),img=await nvsRaster(src);
-    const stale=graph.plotSync&&graph.plotSync.signature!==nvsPlotSignature(p),missing=nvsMissingWireLinks(p,scenario);
-    const notice=missing.length?['要確認: 施工配線がない接続 '+missing.length+'件。詳細は次頁。',...(stale?['配置・配線も系統図作成後に変更されています。']:[])]:stale?['要確認: 配置・配線は系統図作成後に変更されています。接続候補を再確認してください。']:[];
+    const sourceState=nvsPlotSourceState(stored,p),missing=nvsMissingWireLinks(p,scenario),retained=missing.filter(row=>!output.links.has(row.link.id));
+    const sourceNotice=sourceState==='changed'?(missing.length?'配置・配線も系統図作成後に変更されています。':'要確認: 配置・配線は系統図作成後に変更されています。接続候補を再確認してください。'):sourceState==='dismissed'?'配置・配線と接続構成に差異があります（反映しない選択済み）。':'';
+    const physicalRetained=scenario==='proposed'?nvsProposalRetainedBlocks(p,graph):[];
+    const confirmations=(missing.length||physicalRetained.length?nvsMiiWireWarnings(p,scenario).items:[]).filter(item=>item.category==='missing'||item.category==='retained-node');
+    const retainedDevices=confirmations.filter(item=>item.category==='retained-node');
+    const notice=[...(retained.length?['要確認: 図面と異なる旧接続 '+retained.length+'件を保持しています。']:[]),...(retainedDevices.length&&!retained.length&&!output.links.size&&!sourceNotice?['要確認: 図面に対応機器がない旧ブロック '+retainedDevices.length+'件を提案に保持しています。']:[]),...(output.links.size?['元配線がない自動接続 '+output.links.size+'件は出力から除外（案件履歴は保持）。']:[]),...(sourceNotice?[sourceNotice]:[])];
     pages.push({title:NVS_SCENARIOS[scenario]+'の接続構成',lines:notice.flatMap(nvsReportWrapText),image:img.src,imageInfo:img});
-    if(missing.length){const lines=['旧接続を保持しています。施工前に接続一覧の対応配線を再設定するか、不要な接続を削除してください。',...missing.map(x=>'接続'+(x.index+1)+' / '+x.label+' / 元の施工配線'+x.missing.length+'件が見つかりません。')].flatMap(nvsReportWrapText);for(let i=0;i<lines.length;i+=14)pages.push({title:'接続と施工配線の確認'+(i?'（続き）':''),lines:lines.slice(i,i+14)});}
+    if(confirmations.length){const lines=confirmations.flatMap(item=>[(item.category==='retained-node'?'機器':'接続')+item.index+' / '+item.label,item.notice]).flatMap(nvsReportWrapText);for(let i=0;i<lines.length;i+=14)pages.push({title:(retainedDevices.length?'接続と配置機器の確認':'接続と施工配線の確認')+(i?'（続き）':''),lines:lines.slice(i,i+14)});}
+
     pages.push(...nvsGraphDetailPages(p,graph));
   }
   if(['proposal','survey','work','completion','aftercare'].includes(kind))for(const f of p.floors){if(f.imgSrc)f.img=await nvsImage(f.imgSrc);if(!f.imgSrc&&!f.devices.length&&!f.wires.length)continue;let capture;const prior=project,oldPhotos=ui.showPhotos;try{project=p;ui.showPhotos=false;capture=renderFloorImage(f,1800,1100,{handbook:true});}finally{project=prior;ui.showPhotos=oldPhotos;}pages.push({title:options.sourceVersion?'配置図（保存版の状態）':'配置図（資料作成時点）',lines:[f.name],image:capture.dataUrl,imageInfo:{src:capture.dataUrl,w:capture.w,h:capture.h}});}
@@ -9159,7 +9169,7 @@ function nvsPlotValidate(n){
   const object=(v,name)=>{if(!v||typeof v!=='object'||Array.isArray(v))throw new Error(name+'の連携情報が不正です');};
   const entries=(book,name)=>{object(book,name);for(const value of Object.values(book)){object(value,name);if(value.manual!=null&&typeof value.manual!=='boolean')throw new Error(name+'の手入力区分が不正です');if(value.manualFields!=null&&(!Array.isArray(value.manualFields)||value.manualFields.some(k=>typeof k!=='string')))throw new Error(name+'の手入力項目が不正です');}};
   if(n.basicSync!=null){object(n.basicSync,'基本入力');object(n.basicSync.fields,'基本入力の項目');object(n.basicSync.areas,'基本入力の調査行');for(const group of Object.values(n.basicSync.fields))entries(group,'基本入力の項目');for(const row of Object.values(n.basicSync.areas)){object(row,'調査行');if(typeof row.id!=='string')throw new Error('調査行の連携IDが不正です');if(!row.external)entries(row.fields,'調査行の項目');}}
-  for(const g of Object.values(n.topology||{})){if(!g?.plotSync)continue;const s=g.plotSync;object(s,'系統図');for(const kind of ['nodes','links']){entries(s[kind],'系統図の生成履歴');for(const row of Object.values(s[kind])){if(typeof row.id!=='string')throw new Error('系統図の連携IDが不正です');object(row.value,'系統図の前回値');}}if(s.tolerance!=null&&(!Number.isFinite(s.tolerance)||s.tolerance<0||s.tolerance>200))throw new Error('配線端点の検索距離が不正です');if(s.signature!=null&&typeof s.signature!=='string')throw new Error('配線の生成元情報が不正です');}
+  for(const g of Object.values(n.topology||{})){if(!g?.plotSync)continue;const s=g.plotSync;object(s,'系統図');for(const kind of ['nodes','links']){entries(s[kind],'系統図の生成履歴');for(const row of Object.values(s[kind])){if(typeof row.id!=='string')throw new Error('系統図の連携IDが不正です');object(row.value,'系統図の前回値');}}if(s.tolerance!=null&&(!Number.isFinite(s.tolerance)||s.tolerance<0||s.tolerance>200))throw new Error('配線端点の検索距離が不正です');if(s.signature!=null&&typeof s.signature!=='string')throw new Error('配線の生成元情報が不正です');if(s.dismissedSignature!=null&&typeof s.dismissedSignature!=='string')throw new Error('反映を見送った図面情報が不正です');}
 }
 function nvsSyncBasic(p=project){
   if(!p?.floors||!p.meta)return;
@@ -9246,12 +9256,13 @@ function nvsPlotAnalyze(p=project,tolerance=24,choices={}){
       component.forEach(w=>used.add(w));const ce=ends.filter(e=>component.has(e.wire)),terminal=ce.filter(e=>!joins.has(e));
       const keys=[...component].map(w=>nvsPlotWireKey(floor,w)).sort(),id=JSON.stringify(keys);
       const first=terminal[0]||ce[0],last=terminal[1]||ce[1];
-      const kinds=[...new Set([...component].map(w=>w.connection?.kind).filter(Boolean))];
+      const specified=[...component].map(w=>w.connection?.kind).filter(Boolean),kinds=[...new Set(specified)];
       const row={id,floorId:floor.id,wireKeys:keys,wireKey:keys[0],title:floor.name+' / 配線 '+[...component].map(w=>floor.wires.indexOf(w)+1).join('・'),
-        from:first.asset,to:last.asset,kind:kinds.length===1?kinds[0]:'lan',ends:[first,last],reason:terminal.length!==2?'閉じた配線です。接続先を指定してください':[first.reason,last.reason].filter(Boolean).join(' / '),kindAssumed:!kinds.length};
+        from:first.asset,to:last.asset,kind:kinds.length===1?kinds[0]:'lan',ends:[first,last],reason:terminal.length!==2?'閉じた配線です。接続先を指定してください':[first.reason,last.reason].filter(Boolean).join(' / '),kindAssumed:specified.length<component.size,kindPartial:specified.length>0&&specified.length<component.size};
       // 異なる種類の区間を「その他」の確定接続へ変換しない。利用者の選択を待つ。
       if(kinds.length>1)row.kind='';
       if(choices[id])Object.assign(row,choices[id]);
+      if(choices[id]?.kind&&Object.hasOwn(NVS_LINK_TYPES,choices[id].kind)){row.kindAssumed=false;row.kindPartial=false;}
       if(kinds.length>1&&!row.kind)row.reason=[row.reason,'接続種類が異なる区間です（'+kinds.map(k=>NVS_LINK_TYPES[k]||k).join(' / ')+'）。確認して接続種類を選択してください'].filter(Boolean).join(' / ');
       row.valid=!!row.from&&!!row.to&&row.from!==row.to&&Object.hasOwn(NVS_LINK_TYPES,row.kind)&&assets.some(a=>a.key===row.from)&&assets.some(a=>a.key===row.to);
       if(row.from&&row.from===row.to)row.reason='両端が同じ機器です';
@@ -9261,11 +9272,33 @@ function nvsPlotAnalyze(p=project,tolerance=24,choices={}){
   }
   return {assets,rows,warnings,tolerance,choices,signature:nvsPlotSignature(p)};
 }
+// 反映可能かどうかと、現物の接続が確認済みかどうかは別。候補の根拠を入力欄の近くに示す。
+function nvsPlotBasis(row,analysis){
+  const choice=analysis.choices[row.id]||{};
+  const endpoint=(side,index)=>{
+    const end=row.ends[index],id=row[side];
+    if(Object.hasOwn(choice,side))return id?'今回選択した機器ID':'今回は接続しない';
+    if(end.explicit==='none')return '保存済み指定：未接続';
+    if(end.explicit)return id?'保存済みの機器ID指定':'保存済みの機器がありません。選び直してください';
+    if(id)return '座標からの候補。実際の接続先を確認してください';
+    return end.near.length>1?'近くに複数機器があります。接続先を選んでください':'近くに機器がありません。接続する機器を選んでください';
+  };
+  const kind=choice.kind&&Object.hasOwn(NVS_LINK_TYPES,choice.kind)?'今回選択した種類':!row.kind?'区間の種類が異なります。接続種類を選んでください':!Object.hasOwn(NVS_LINK_TYPES,row.kind)?'保存済みの種類に対応していません。選び直してください':row.kindPartial?'一部区間が未指定：'+(NVS_LINK_TYPES[row.kind]||row.kind)+'を仮設定':row.kindAssumed?'種類未指定：LANを仮設定':'全区間の保存済み指定';
+  return {from:endpoint('from',0),to:endpoint('to',1),kind,join:row.wireKeys.length>1?'端点の近さで'+row.wireKeys.length+'区間を仮結合。一本の経路か確認してください':''};
+}
+// 保存済みIDと種類が揃う単一区間は追加入力不要。座標・種類の仮定と区間結合だけ明示確認する。
+function nvsPlotReviewState(row,analysis){
+  const choice=analysis.choices[row.id]||{},reasons=[];
+  for(const [index,side] of ['from','to'].entries())if(!Object.hasOwn(choice,side)&&!row.ends[index].explicit)reasons.push((side==='from'?'始点':'終点')+'が座標候補');
+  if(row.kindAssumed)reasons.push('接続種類が仮設定');
+  if(row.wireKeys.length>1)reasons.push('複数区間を仮結合');
+  return {reasons,needsConfirmation:row.valid&&reasons.length>0&&choice.confirmed!==true,confirmed:choice.confirmed===true};
+}
 function nvsPlotCandidate(p,analysis){
   const nodes=analysis.assets.map(a=>({id:'plot:'+a.key,type:nvsPlotType(a.type),name:a.label,location:a.location,detail:a.source.model||'',qty:1,assetKeys:[a.key],x:54,y:90}));
   const rank=n=>({router:0,lan:1,switch:2,server:3})[n.type]??4;
   const byKey=new Map(nodes.map(n=>[n.assetKeys[0],n]));
-  const links=analysis.rows.filter(r=>r.valid).map(r=>{let from=byKey.get(r.from),to=byKey.get(r.to);if(rank(from)>rank(to))[from,to]=[to,from];return {id:'plot-wire:'+r.id,from:from.id,to:to.id,kind:r.kind,label:'',direction:'none',route:'auto',wireKey:r.wireKey,wireKeys:r.wireKeys};});
+  const links=analysis.rows.filter(r=>r.valid).map(r=>{let from=byKey.get(r.from),to=byKey.get(r.to);if(rank(from)>rank(to)||(rank(from)===rank(to)&&from.id>to.id))[from,to]=[to,from];return {id:'plot-wire:'+r.id,from:from.id,to:to.id,kind:r.kind,label:'',direction:'none',route:'auto',wireKey:r.wireKey,wireKeys:r.wireKeys};});
   // 上流から順に並べ、同じHUBの端末を近くにまとめる。座標はMIIの機器カード寸法に合わせる。
   const adjacent=new Map(nodes.map(n=>[n.id,[]]));links.forEach(l=>{adjacent.get(l.from).push(l.to);adjacent.get(l.to).push(l.from);});
   const sorted=nodes.slice().sort((a,b)=>rank(a)-rank(b)),visited=new Set(),components=[];
@@ -9274,10 +9307,129 @@ function nvsPlotCandidate(p,analysis){
   for(const c of components){if(x&&x+c.w>5){y+=band+1;x=0;band=0;}for(const item of c.items){item.node.x=54+(x+item.col)*360;item.node.y=90+(y+item.row)*145;}x+=c.w;band=Math.max(band,c.h);}
   return {nodes,links,preset:'custom',lineMode:'trunk'};
 }
+function nvsPlotSameEnds(a,b){return (a.from===b.from&&a.to===b.to)||(a.from===b.to&&a.to===b.from);}
+function nvsPlotPairKey(link){return JSON.stringify([link.kind,...[link.from,link.to].sort()]);}
+function nvsPlotWireRefs(link){return [...new Set((link.wireKeys?.length?link.wireKeys:[link.wireKey]).filter(Boolean))];}
+// 図示上の並行線番号。保存値を変えず、接続ID順で同じ端点の複数線を識別する。
+function nvsPlotParallelGroups(graph){
+  const groups=new Map();for(const link of graph.links||[]){if(!['lan','poe'].includes(link.kind))continue;const key=JSON.stringify([link.from,link.to].sort());const rows=groups.get(key)||[];rows.push(link);groups.set(key,rows);}
+  return [...groups.values()].filter(rows=>rows.length>1).map(rows=>rows.slice().sort((a,b)=>String(a.id||'').localeCompare(String(b.id||''))));
+}
+function nvsPlotSharedGroups(graph){
+  const groups=new Map();for(const [key,entry] of Object.entries(graph.plotSync?.links||{})){const rows=groups.get(entry.id)||[];rows.push({key,entry});groups.set(entry.id,rows);}
+  return [...groups].filter(([,rows])=>rows.length>1).map(([id,rows])=>({id,rows}));
+}
+// 行先IDが失われた履歴も同じカードで再対応する。削除か旧版編集かは推測しない。
+function nvsPlotRebindGroups(graph){
+  const rows=Object.entries(graph.plotSync?.links||{}).map(([key,entry])=>({key,entry}));
+  const missing=rows.filter(({entry})=>!graph.links.some(l=>l.id===entry.id));
+  // 他の履歴が占有した接続へ付け替える場合、譲る側も利用者が明示選択できるようにする。
+  return missing.length?[{rows,missingKeys:missing.map(r=>r.key)}]:nvsPlotSharedGroups(graph);
+}
+// 明示した元配線の対応だけを一括更新する。途中の不整合では履歴も接続も変更しない。
+function nvsPlotRebind(before,candidate,choices={}){
+  const graph=nvsClone(before),issues=[],groups=nvsPlotRebindGroups(before);let updated=0;
+  const links=before.plotSync?.links||{},fresh=new Map(candidate.links.map(l=>[l.id,l]));
+  const choiceCounts=new Map();for(const {rows} of groups)for(const {key} of rows){const pick=choices[key];if(pick&&pick!=='release')choiceCounts.set(pick,(choiceCounts.get(pick)||0)+1);}
+  const mapped=value=>{
+    const v=nvsClone(value);for(const side of ['from','to']){const prior=before.plotSync?.nodes?.[v[side]],node=candidate.nodes.find(n=>n.id===v[side]);const matches=before.nodes.filter(n=>(n.assetKeys||[]).some(k=>node?.assetKeys?.includes(k)));v[side]=prior?.id||(matches.length===1?matches[0].id:v[side]);}return v;
+  };
+  for(const group of groups){
+    const selected=group.rows.filter(r=>choices[r.key]);if(!selected.length)continue;
+    const keys=new Set(selected.map(r=>r.key)),refs=new Set(selected.flatMap(r=>nvsPlotWireRefs(r.entry.value))),targets=new Set();let issue='';
+    if(!group.missingKeys&&selected.length!==group.rows.length)issue='この旧対応の元配線すべてについて、行先を選ぶか全欄を「今回は保持」に戻してください。';
+    if(group.missingKeys&&nvsPlotSharedGroups(before).some(g=>g.rows.some(r=>keys.has(r.key))&&!g.rows.every(r=>keys.has(r.key))))issue='複数の元配線が同じ接続に対応する組は、すべて行先を選ぶか全欄を「今回は保持」に戻してください。';
+    if(issue){issues.push(issue);continue;}
+    for(const {key} of selected){
+      const pick=choices[key];if(pick==='release'){if(fresh.has(key))issue='現在の図面に接続候補がある元配線は、対応先の接続を選んでください。';continue;}
+      const target=pick.startsWith('link:')?pick.slice(5):null,row=before.links.find(l=>l.id===target);
+      if(!row)issue='選択した接続がありません。候補を作り直してください。';
+      else if(targets.has(target)||choiceCounts.get(pick)>1)issue='異なる元配線には別々の接続を選んでください。同じ接続への再集約は行いません。';
+      else if(Object.entries(links).some(([k,e])=>!keys.has(k)&&e.id===target)||nvsPlotWireRefs(row).some(k=>!refs.has(k)))issue='選択した接続には別の元配線の対応があります。その元配線も別の接続へ選び直すか、別の接続を選んでください。';
+      targets.add(target);
+    }
+    if(Object.entries(links).some(([k,e])=>!keys.has(k)&&nvsPlotWireRefs(e.value).some(r=>refs.has(r))))issue='元配線IDが別の生成履歴にも重複しています。今回の対応変更は見送りました。';
+    const allRefs=selected.flatMap(r=>nvsPlotWireRefs(r.entry.value)),oldIds=new Set(selected.map(r=>r.entry.id));
+    if(new Set(allRefs).size!==allRefs.length)issue='同じ元配線IDがこの組の複数履歴に含まれています。元情報を保持して対応変更を見送りました。';
+    if(before.links.some(l=>!oldIds.has(l.id)&&!targets.has(l.id)&&nvsPlotWireRefs(l).some(r=>refs.has(r))))issue='元配線が別の接続にも登録されています。その対応を含めて確認するまで変更しません。';
+    if(before.links.some(l=>(oldIds.has(l.id)||targets.has(l.id))&&l.wireKey&&l.wireKeys?.length&&!l.wireKeys.includes(l.wireKey)))issue='施工配線の指定と参照一覧が一致していません。既存の参照を保持して対応変更を見送りました。';
+    if(issue){issues.push(issue);continue;}
+    for(const row of graph.links.filter(l=>oldIds.has(l.id)||targets.has(l.id))){
+      const priorRefs=nvsPlotWireRefs(row),next=priorRefs.filter(k=>!refs.has(k));
+      if(next.length!==priorRefs.length){row.wireKeys=next;row.wireKey=next.includes(row.wireKey)?row.wireKey:(next[0]||'');}
+    }
+    for(const {key,entry} of selected){
+      const pick=choices[key];if(pick==='release'){delete graph.plotSync.links[key];updated++;continue;}
+      const row=graph.links.find(l=>l.id===pick.slice(5)),value=mapped(fresh.get(key)||entry.value);
+      if(nvsPlotSameEnds(row,value)){value.from=row.from;value.to=row.to;}
+      const assigned=nvsPlotWireRefs(fresh.get(key)||entry.value);row.wireKeys=[...new Set([...nvsPlotWireRefs(row),...assigned])];row.wireKey=assigned[0]||'';
+      // 対応だけを直し、手書き値は保持。両端変更は既存の競合選択を通す。
+      const priorRows=[entry,...Object.values(links).filter(e=>e.id===row.id)],manualFields=[...new Set([...priorRows.flatMap(e=>e.manual?Object.keys(value):e.manualFields||[]),...Object.keys(value).filter(k=>JSON.stringify(row[k])!==JSON.stringify(value[k]))])].filter(k=>!['id','wireKey','wireKeys'].includes(k));
+      graph.plotSync.links[key]={...entry,id:row.id,manual:false,manualFields,value};updated++;
+    }
+  }
+  return {graph,issues:[...new Set(issues)],updated};
+}
+// 元配線が物理的に消え、同じ階に新IDの候補が生じた場合だけ、推測して新接続を増やさず確認する。
+function nvsPlotWireFloorLookup(before,p){
+  const prior=new Map(),ambiguous=new Set();
+  try{const snapshot=JSON.parse(before.plotSync?.signature||'null');if(Array.isArray(snapshot))for(const f of snapshot){
+    if(!f||typeof f.id!=='string'||!Array.isArray(f.wires))continue;
+    for(const w of f.wires){if(!w||typeof w.id!=='string')continue;const key=nvsPlotWireKey(f,w);
+      if(prior.has(key))ambiguous.add(key);else prior.set(key,f.id);}
+  }}catch{}
+  return key=>{if(ambiguous.has(key))return '';if(prior.has(key))return prior.get(key);
+    // Without a stored signature, any additional colon could belong to either ID. Do not infer a retired floor from the current floors.
+    if(key.indexOf(':')!==key.lastIndexOf(':'))return '';
+    const matches=p.floors.filter(f=>key.startsWith(f.id+':'));return matches.length===1?matches[0].id:'';};
+}
+function nvsPlotRedrawRows(before,candidate,p){
+  const physical=new Set(p.floors.flatMap(f=>f.wires.map(w=>nvsPlotWireKey(f,w)))),current=new Set(candidate.links.map(l=>l.id));
+  const oldFloor=nvsPlotWireFloorLookup(before,p),currentFloor=new Map(p.floors.flatMap(f=>f.wires.map(w=>[nvsPlotWireKey(f,w),f.id])));
+  const shared=new Set(nvsPlotSharedGroups(before).flatMap(g=>g.rows.map(r=>r.key)));
+  const old=Object.entries(before.plotSync?.links||{}).filter(([key,e])=>!current.has(key)&&!shared.has(key)&&before.links.some(l=>l.id===e.id)&&nvsPlotWireRefs(e.value).length&&nvsPlotWireRefs(e.value).every(k=>!physical.has(k)));
+  const bound=new Set(Object.values(before.plotSync?.links||{}).map(e=>e.id));
+  return candidate.links.filter(l=>!before.plotSync?.links?.[l.id]).map(fresh=>{
+    const matched=old.filter(([,e])=>nvsPlotWireRefs(e.value).some(k=>{const sourceFloor=oldFloor(k);return sourceFloor&&fresh.wireKeys.some(n=>sourceFloor===currentFloor.get(n));}));
+    const possible=old.filter(pair=>!matched.includes(pair)&&nvsPlotWireRefs(pair[1].value).some(k=>!oldFloor(k)&&fresh.wireKeys.some(n=>{const floor=currentFloor.get(n);return floor&&k.startsWith(floor+':');})));
+    const from=before.plotSync?.nodes?.[fresh.from]?.id||fresh.from,to=before.plotSync?.nodes?.[fresh.to]?.id||fresh.to;
+    const unbound=before.links.filter(l=>!bound.has(l.id)&&!nvsPlotWireRefs(l).length&&nvsPlotPairKey(l)===nvsPlotPairKey({...fresh,from,to})).map(l=>[null,{id:l.id,value:l}]);
+    return {fresh,old:[...matched,...possible,...unbound],uncertainIds:possible.map(([,entry])=>entry.id)};
+  }).filter(x=>x.old.length);
+}
+function nvsPlotResolveRedraw(before,candidate,rows,choices={}){
+  const graph=nvsClone(before),held=new Set(),issues=[],used=new Set();let updated=0;
+  // 同じ旧接続が複数の新候補に見える場合、片方だけ決めて残りを暗黙に新規追加させない。
+  const related=new Map();for(const r of rows)for(const [,e] of r.old){const ids=related.get(e.id)||new Set();ids.add(r.fresh.id);related.set(e.id,ids);}
+  for(const ids of related.values()){const picked=[...ids].filter(id=>choices[id]);if(picked.length&&picked.length<ids.size)return {graph,held:new Set(rows.map(r=>r.fresh.id)),issues:['同じ元接続に対応しうる新しい配線候補は、すべて行先を選ぶか全て保留してください。'],updated:0};}
+  for(const {fresh,old} of rows){
+    const choice=choices[fresh.id]||'';
+    if(!choice){held.add(fresh.id);continue;}
+    if(choice==='new')continue;
+    const id=choice.startsWith('link:')?choice.slice(5):'',found=old.find(([,e])=>e.id===id),row=graph.links.find(l=>l.id===id);
+    if(!found||!row||used.has(id)){issues.push('選択した元接続が重複または不明です。候補を作り直してください。');held.add(fresh.id);continue;}
+    used.add(id);
+    const [oldKey,entry]=found,prior=oldKey?graph.plotSync.links[oldKey]:{id,manual:true,manualFields:[],value:entry.value},oldRefs=nvsPlotWireRefs(entry.value);
+    const currentRefs=nvsPlotWireRefs(row);
+    if(currentRefs.some(k=>!oldRefs.includes(k))||(row.wireKey&&row.wireKeys?.length&&!row.wireKeys.includes(row.wireKey))){issues.push('元接続の配線参照が別の配線も含みます。現在の接続を保ちました。');held.add(fresh.id);continue;}
+    const value=nvsClone(fresh);
+    for(const side of ['from','to']){const tracked=graph.plotSync.nodes?.[value[side]];if(tracked)value[side]=tracked.id;}
+    if(nvsPlotSameEnds(row,value)){value.from=row.from;value.to=row.to;}
+    const manualFields=[...new Set([...(prior.manual?Object.keys(value):prior.manualFields||[]),...Object.keys(value).filter(k=>JSON.stringify(row[k])!==JSON.stringify(value[k]))])].filter(k=>!['id','wireKey','wireKeys'].includes(k));
+    row.wireKeys=nvsPlotWireRefs(fresh);row.wireKey=fresh.wireKey;
+    graph.plotSync.links[fresh.id]={...prior,id:row.id,manual:false,manualFields,value};if(oldKey)delete graph.plotSync.links[oldKey];updated++;
+  }
+  return {graph,held,issues,updated};
+}
 // 再生成は前回の生成値と比較し、変更されていない欄だけ更新する。手動削除も保持する。
-function nvsPlotMerge(before,candidate){
-  const g=nvsClone(before),old=before.plotSync||{nodes:{},links:{}},book=nvsClone(old),warnings=[];let added=0,updated=0;
+function nvsPlotMerge(before,candidate,decisions={},rebindings={},redraw={}){
+  const repair=nvsPlotRebind(before,candidate,rebindings),lineage=nvsPlotResolveRedraw(repair.graph,candidate,redraw.rows||[],redraw.choices);before=lineage.graph;
+  candidate={...candidate,links:candidate.links.filter(l=>!lineage.held.has(l.id))};
+  const g=nvsClone(before),old=before.plotSync||{nodes:{},links:{}},book=nvsClone(old),warnings=[],conflicts=[];let added=0,updated=0,needsReview=false;
   const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b),map=new Map();
+  const trackedByRow=new Map(),reviewedShared=new Set(),manualMatched=new Set(),candidateById=new Map(candidate.links.map(l=>[l.id,l])),candidatePairCount=new Map();
+  for(const entry of Object.values(old.links||{})){const group=trackedByRow.get(entry.id)||[];group.push(entry);trackedByRow.set(entry.id,group);}
+  for(const fresh of candidate.links){const key=nvsPlotPairKey(fresh);candidatePairCount.set(key,(candidatePairCount.get(key)||0)+1);}
   for(const fresh of candidate.nodes){
     const prior=old.nodes[fresh.id],matches=g.nodes.filter(n=>(n.assetKeys||[]).some(k=>fresh.assetKeys.includes(k)));
     const manualFields=new Set(prior?.manualFields||[]);
@@ -9291,47 +9443,189 @@ function nvsPlotMerge(before,candidate){
   }
   for(const fresh of candidate.links){
     if(!map.has(fresh.from)||!map.has(fresh.to)||map.get(fresh.from)===map.get(fresh.to)){warnings.push('対応機器を確認できない配線の追加を見送りました。');continue;}
-    const value={...fresh,from:map.get(fresh.from),to:map.get(fresh.to)},prior=old.links[fresh.id];let row=prior?g.links.find(l=>l.id===prior.id):g.links.find(l=>l.kind===value.kind&&((l.from===value.from&&l.to===value.to)||(l.from===value.to&&l.to===value.from)));
+    const value={...fresh,from:map.get(fresh.from),to:map.get(fresh.to)},prior=old.links[fresh.id];let row=prior?g.links.find(l=>l.id===prior.id):null;
     const manualFields=new Set(prior?.manualFields||[]);
-    if(prior&&!row){warnings.push('構成図で削除済みの接続は再追加しません。');continue;}
-    if(!prior&&row){book.links[fresh.id]={id:row.id,manual:true,value};continue;}
-    if(!row){row=nvsClone(value);g.links.push(row);added++;}
-    else if(!prior.manual){const copy=nvsClone(row);for(const [key,v] of Object.entries(value)){if(key==='id')continue;if(!equal(row[key],prior.value[key]))manualFields.add(key);if(!manualFields.has(key))copy[key]=nvsClone(v);}if(copy.from===copy.to){warnings.push('手修正と配線変更が競合した接続は保持しました。');}else if(!equal(row,copy)){Object.assign(row,copy);updated++;}}
+    if(prior&&!row){warnings.push('元配線に対応する接続IDが見つかりません。手動削除か旧版編集かは判断せず、再追加しません。「旧保存の元配線との対応を確認」で選び直すか、今回は反映しないを選べます。');needsReview=true;continue;}
+    // 両端の機器IDが同じなら、配線区間の登録順では既存の矢印の向きを変えない。
+    if(row&&nvsPlotSameEnds(row,value)){value.from=row.from;value.to=row.to;}
+    else if(row?.direction==='forward'){
+      // 片方の機器だけ入れ替わるときは、残った機器の図示上の始点・終点を維持する。
+      if(row.to===value.from||row.from===value.to)[value.from,value.to]=[value.to,value.from];
+    }
+    // 旧版が同一接続へ複数の元配線を結び付けた場合は、意図を推測して分割しない。
+    if(prior&&trackedByRow.get(row.id)?.length>1){
+      if(!reviewedShared.has(row.id)){
+        reviewedShared.add(row.id);
+        const entries=trackedByRow.get(row.id),refs=[...new Set(entries.flatMap(e=>nvsPlotWireRefs(e.value)))].sort(),current=nvsPlotWireRefs(row);
+        const sameOldPair=entries.every(e=>e.value?.kind===row.kind&&nvsPlotPairKey(e.value)===nvsPlotPairKey(row));
+        const safe=sameOldPair&&current.every(key=>refs.includes(key))&&entries.every(e=>!e.manualFields?.some(k=>k==='wireKey'||k==='wireKeys'));
+        if(safe&&refs.some(key=>!current.includes(key))){row.wireKeys=refs;row.wireKey=refs.includes(row.wireKey)?row.wireKey:refs[0];updated++;}
+        const sourceChanged=entries.some(e=>{const next=candidateById.get(e.value?.id);return !next||nvsPlotPairKey({...next,from:map.get(next.from),to:map.get(next.to)})!==nvsPlotPairKey(e.value);});
+        if(sourceChanged||!safe)needsReview=true;
+        warnings.push((sourceChanged||!safe?'旧保存で複数の配線が1接続に対応しています。このカードの「旧保存の元配線との対応を確認」で行先を選び直せます。':'旧保存で複数の配線が1接続に対応しています。元配線の参照を保持しました。')+' 元配線ID: '+refs.join(' / '));
+      }
+      continue;
+    }
+    if(!prior){
+      // 手作成の接続には、一意に対応する候補だけを従来どおり結び付ける。
+      if(candidatePairCount.get(nvsPlotPairKey(fresh))===1){
+        const matches=g.links.filter(l=>!trackedByRow.has(l.id)&&!manualMatched.has(l.id)&&!l.wireKey&&!(l.wireKeys?.length)&&nvsPlotPairKey(l)===nvsPlotPairKey(value));
+        if(matches.length===1){row=matches[0];manualMatched.add(row.id);row.wireKey=value.wireKey;row.wireKeys=nvsPlotWireRefs(value);book.links[fresh.id]={id:row.id,manual:true,value};continue;}
+      }
+      row=nvsClone(value);if(g.links.some(l=>l.id===row.id))row.id=nvsId();g.links.push(row);added++;
+    }
+    else if(!prior.manual){
+      const copy=nvsClone(row);
+      // 接続先は一組で意味を持つ。片側を手修正した後にもう片側だけ図面から更新しない。
+      const directionManual=row.direction==='forward'&&(manualFields.has('direction')||!equal(row.direction,prior.value.direction));
+      const pairManual=directionManual||['from','to'].some(key=>manualFields.has(key)||!equal(row[key],prior.value[key]));
+      const pairChanged=!equal([row.from,row.to],[value.from,value.to]);
+      const arrowUncertain=row.direction==='forward'&&![row.from,row.to].some(id=>id===value.from||id===value.to);
+      let clearUncertainArrow=false;
+      if(pairManual){
+        manualFields.add('from');manualFields.add('to');
+        if(pairChanged)conflicts.push({id:fresh.id,current:[row.from,row.to],candidate:[value.from,value.to],arrowUncertain,decision:decisions[fresh.id]==='drawing'?'drawing':'keep'});
+        if(pairChanged&&decisions[fresh.id]==='drawing'){
+          copy.from=value.from;copy.to=value.to;
+          manualFields.delete('from');manualFields.delete('to');
+          clearUncertainArrow=arrowUncertain;
+        }
+      }else{copy.from=value.from;copy.to=value.to;}
+      for(const [key,v] of Object.entries(value)){
+        if(['id','from','to'].includes(key))continue;
+        if(!equal(row[key],prior.value[key]))manualFields.add(key);
+        if(!manualFields.has(key))copy[key]=nvsClone(v);
+      }
+      if(clearUncertainArrow){copy.direction='none';manualFields.delete('direction');warnings.push('両端の機器が変わり、図示矢印の向きを判断できないため方向なしにしました。接続一覧で選び直してください。');}
+      if(copy.from===copy.to){warnings.push('手修正と配線変更が競合した接続は保持しました。');}
+      else if(!equal(row,copy)){Object.assign(row,copy);updated++;}
+    }
     book.links[fresh.id]={id:row.id,manual:prior?.manual||false,manualFields:[...manualFields],value:nvsClone(value)};
   }
   for(const kind of ['nodes','links'])for(const [key,entry] of Object.entries(old[kind]))if(!candidate[kind].some(r=>r.id===key)&&g[kind].some(r=>r.id===entry.id))warnings.push((kind==='nodes'?'機器':'接続')+'の元となる配置・配線がなくなったか未確定です。既存の構成は保持しました。');
-  g.plotSync=book;if(!before.nodes.length){g.preset='custom';g.lineMode='trunk';}return {graph:g,added,updated,warnings:[...new Set(warnings)]};
+  if(lineage.held.size){needsReview=true;warnings.push('図面で元配線がなくなり、新しいIDの配線候補があります。以前の接続と同じものか確認し、候補カードで行先を選んでください。');}
+  g.plotSync=book;if(!before.nodes.length){g.preset='custom';g.lineMode='trunk';}return {graph:g,added,updated:updated+repair.updated+lineage.updated,conflicts,needsReview,rebindIssues:[...repair.issues,...lineage.issues],warnings:[...new Set(warnings)]};
 }
-let nvsPlotDraft=null,nvsPlotUndo=null;
-function nvsPlotReview(){nvsView.tab='design';nvsPlotDraft={owner:project,scenario:nvsView.scenario,analysis:nvsPlotAnalyze(project,nvsEnsure().topology[nvsView.scenario].plotSync?.tolerance??24)};nvsRender();nvsOverlay.querySelector('.nvsBody').scrollTop=0;}
+let nvsPlotDraft=null,nvsPlotUndo=null,nvsPlotViewSequence=0;
+// 配置や自由記述は妨げず、判断に使った機器対応・接続・生成履歴だけを照合する。
+function nvsPlotTargetSignature(g){return JSON.stringify({nodes:g.nodes.map(n=>[n.id,n.assetKeys,n.name,n.type]),links:g.links.map(l=>[l.id,l.from,l.to,l.kind,l.direction,l.wireKey,l.wireKeys]),plotSync:g.plotSync});}
+function nvsPlotSourceState(g,p){
+  if(!g?.plotSync)return 'untracked';
+  const source=nvsPlotSignature(p);
+  if(Object.values(g.plotSync.links||{}).some(e=>!g.links.some(l=>l.id===e.id)))return g.plotSync.dismissedSignature===source?'dismissed':'changed';
+  if(g.plotSync.signature===source)return 'current';
+  return g.plotSync.dismissedSignature===source?'dismissed':'changed';
+}
+function nvsPlotDraftIssue(d){
+  if(!d||d.owner!==project||d.scenario!==nvsView.scenario)return '配線の候補を作り直してください';
+  if(d.analysis.signature!==nvsPlotSignature(project))return '候補の確認中に配置・配線が変わりました。古い選択は反映せず、候補を作り直してください。';
+  if(d.targetSignature!==nvsPlotTargetSignature(nvsEnsure().topology[d.scenario]))return '候補の確認中に接続構成が変わりました。現在の手編集を保ち、候補を作り直してください。';
+  if([...Object.values(d.rebindings),...Object.values(d.redrawChoices)].some(pick=>pick.startsWith('link:')&&d.targetLinkDetails?.[pick.slice(5)]!==JSON.stringify(nvsEnsure().topology[d.scenario].links.find(l=>l.id===pick.slice(5)))))return '選択した接続のラベル・説明などが確認中に変わりました。候補を作り直してください。';
+  return '';
+}
+function nvsPlotDuplicateWireKey(p){const seen=new Map();for(const f of p.floors)for(const w of f.wires){const key=nvsPlotWireKey(f,w);if(seen.has(key))return {key,first:seen.get(key),second:{floorId:f.id,wireId:w.id}};seen.set(key,{floorId:f.id,wireId:w.id});}return null;}
+function nvsPlotReview(){const collision=nvsPlotDuplicateWireKey(project);if(collision)throw new Error('保存データの別々の配線が同じ識別子になっています。誤接続を防ぐため接続図への反映を中止しました。案件データを保持して配線IDを確認してください。');nvsView.tab='design';const g=nvsEnsure().topology[nvsView.scenario];nvsPlotDraft={owner:project,scenario:nvsView.scenario,analysis:nvsPlotAnalyze(project,g.plotSync?.tolerance??24),targetSignature:nvsPlotTargetSignature(g),targetLinkDetails:Object.fromEntries(g.links.map(l=>[l.id,JSON.stringify(l)])),linkDecisions:{},rebindings:{},redrawChoices:{},viewToken:String(++nvsPlotViewSequence),openViews:[],pendingTolerance:null};nvsRender();nvsOverlay.querySelector('.nvsBody').scrollTop=0;}
 function nvsPlotCard(){
   const draft=nvsPlotDraft;if(!draft||draft.owner!==project||draft.scenario!==nvsView.scenario)return '';
-  const a=draft.analysis,merged=nvsPlotMerge(nvsEnsure().topology[draft.scenario],nvsPlotCandidate(project,a));
+  const issue=nvsPlotDraftIssue(draft);if(issue)return nvsCard('配線から接続系統図を作成',`<div data-nvs-plot-view-owner="${draft.viewToken}"><p class="nvsNotice">${escapeHtml(issue)}</p><div class="nvsActions">${nvsButton('候補を作り直す','plot-review','',true)}${nvsButton('キャンセル','plot-cancel')}</div></div>`);
+  const a=draft.analysis,graph=nvsEnsure().topology[draft.scenario],candidate=nvsPlotCandidate(project,a),redrawRows=nvsPlotRedrawRows(graph,candidate,project),merged=nvsPlotMerge(graph,candidate,draft.linkDecisions,draft.rebindings,{rows:redrawRows,choices:draft.redrawChoices});
+  const held=nvsPlotResolveRedraw(graph,candidate,redrawRows,draft.redrawChoices).held;
+  const states=a.rows.map(r=>{const state=nvsPlotReviewState(r,a),deferred=held.has('plot-wire:'+r.id);return {...state,deferred,needsConfirmation:state.needsConfirmation&&!deferred,conflict:merged.conflicts.some(c=>c.id==='plot-wire:'+r.id)};}),pending=states.filter(x=>x.needsConfirmation).length,ready=a.rows.filter((r,i)=>r.valid&&!states[i].reasons.length&&!states[i].conflict&&!states[i].deferred).length;
   const connected=new Set(a.rows.filter(r=>r.valid).flatMap(r=>[r.from,r.to])),unconnected=a.assets.filter(x=>!connected.has(x.key));
   if(unconnected.length)merged.warnings.push('プロット配線から接続先を確認できない機器: '+unconnected.map(x=>x.label).join(' / ')+'。機器ブロックは作成し、接続は手動で補えます。');
   const options=(value)=>'<option value="">未確定・接続しない</option>'+a.assets.map(x=>`<option value="${escapeHtml(x.key)}" ${x.key===value?'selected':''}>${escapeHtml(x.label)}</option>`).join('');
-  return nvsCard('配線から接続系統図を作成',`<p class="nvsHint">全フロアの配線の両端を確認します。通常・屋外・高所は施工区分なので、接続種類は仮にLANとしています。電源・HDMIなどは変更してください。交差点は接続しません。端点同士だけでつながる2本の区間はまとめます。</p><label class="nvsField"><span>端点から機器を探す距離（図面px・表示倍率に依存しません）</span><input type="number" min="0" max="200" data-nvs-plot-tolerance value="${a.tolerance}"></label><p><strong>${a.assets.length}機器 / 接続候補 ${a.rows.filter(r=>r.valid).length}件 / 要確認 ${a.rows.filter(r=>!r.valid).length}件</strong></p>${a.rows.map((r,i)=>`<article class="nvsEntry"><strong>${escapeHtml(r.title)}</strong><p class="nvsHint">${r.valid?'接続候補':escapeHtml(r.reason||'接続先を選択してください')}${r.wireKeys.length>1?' / '+r.wireKeys.length+'区間を結合':''}</p><div class="nvsGrid"><label class="nvsField"><span>始点の機器</span><select data-nvs-plot-row="${i}" data-nvs-plot-side="from">${options(r.from)}</select></label><label class="nvsField"><span>終点の機器</span><select data-nvs-plot-row="${i}" data-nvs-plot-side="to">${options(r.to)}</select></label><label class="nvsField"><span>接続種類${r.kindAssumed?'（仮設定）':''}</span><select data-nvs-plot-row="${i}" data-nvs-plot-side="kind">${!r.kind?'<option value="" selected>要確認・種類を選択</option>':''}${Object.entries(NVS_LINK_TYPES).map(([key,label])=>`<option value="${key}" ${key===r.kind?'selected':''}>${label}</option>`).join('')}</select></label></div></article>`).join('')||nvsEmpty('配線がまだありません。配置機器だけを構成図へ追加できます。')}<p class="nvsHint">既存の手修正・手動削除は保持します。追加・更新の対象は ${NVS_SCENARIOS[draft.scenario]}構成です。</p>${[...a.warnings,...merged.warnings].map(w=>`<p class="nvsNotice">${escapeHtml(w)}</p>`).join('')}<div class="nvsActions">${nvsButton('この候補を系統図に反映','plot-apply','',true)}${nvsButton('キャンセル','plot-cancel')}</div>`);
+  const nodeName=id=>graph.nodes.find(n=>n.id===id)?.name||candidate.nodes.find(n=>n.id===id)?.name||id;
+  const rebindView=nvsPlotRebindGroups(graph).map(group=>{
+    const optionLabel=(l,i)=>`接続${i+1} [${l.id}] ${nodeName(l.from)} [${l.from}] → ${nodeName(l.to)} [${l.to}] / ${NVS_LINK_TYPES[l.kind]||l.kind} / 矢印: ${l.direction==='forward'?nodeName(l.from)+' → '+nodeName(l.to):l.direction==='both'?'双方向':'なし'} / ラベル: ${l.label||'なし'}${l.detail?' / 説明: '+l.detail:''} / 元配線: ${nvsPlotWireRefs(l).join(' / ')||'対応なし'}`;
+    const renderBinding=({key,entry})=>{const current=candidate.links.find(l=>l.id===key),v=current||entry.value,pick=draft.rebindings[key]||'',selected=graph.links.find(l=>'link:'+l.id===pick);return `<label class="nvsField"><span>元配線 ${escapeHtml(nvsPlotWireRefs(entry.value).join(' / '))}：${escapeHtml(nodeName(v.from))} → ${escapeHtml(nodeName(v.to))} / ${escapeHtml(NVS_LINK_TYPES[v.kind]||v.kind)}${group.missingKeys?.includes(key)?'（対応先IDが見つかりません）':''}${current?'':'（現図面の接続候補なし）'}</span><select data-nvs-plot-rebind="${escapeHtml(key)}"><option value="">今回は保持</option>${graph.links.map((l,i)=>`<option value="${escapeHtml('link:'+l.id)}" ${pick==='link:'+l.id?'selected':''}>${escapeHtml(optionLabel(l,i))}</option>`).join('')}${!current?`<option value="release" ${pick==='release'?'selected':''}>元配線との対応だけ解除（接続は保持）</option>`:''}</select>${selected?`<small class="nvsHint">選択中: ${escapeHtml(optionLabel(selected,graph.links.indexOf(selected)))}</small>`:''}</label>`;};
+    const missing=group.missingKeys?group.rows.filter(r=>group.missingKeys.includes(r.key)):[],other=group.rows.filter(r=>!group.missingKeys?.includes(r.key));
+    return `<article class="nvsEntry"><strong>旧保存の元配線との対応を確認</strong><p class="nvsHint">${group.missingKeys?'対応先IDが見つからない元配線があります。手動削除か旧版編集かは推測しません。変更する元配線だけ対応先を選んでください。他の元配線が使う接続を選ぶ場合は、その元配線も別の接続へ選び直します。':'同じ接続に複数の元配線が登録されています。分け直す場合は、この組の全欄を選んでください。'}保持する場合は選択不要です。接続先・説明・矢印は保持し、接続自体は削除しません。接続が足りない場合はキャンセルして接続一覧で追加し、候補を作り直してください。</p>${missing.map(renderBinding).join('')}${group.missingKeys&&other.length?`<details ${other.some(r=>draft.rebindings[r.key])?'open':''}><summary>他の元配線の対応も選び直す（${other.length}件）</summary>${other.map(renderBinding).join('')}</details>`:other.map(renderBinding).join('')}</article>`;
+  }).join('');
+  const redrawView=redrawRows.map(({fresh,old,uncertainIds=[]})=>`<article class="nvsEntry"><strong>描き直した配線の行先を確認</strong><p class="nvsHint">新しい元配線ID ${escapeHtml(nvsPlotWireRefs(fresh).join(' / '))}。機器: ${escapeHtml(nodeName(fresh.from))} → ${escapeHtml(nodeName(fresh.to))}。位置が近くても元の配線とは決めません。</p>${uncertainIds.length?'<p class="nvsNotice">旧配線IDの所属階を記録から確定できません。同じ施工配線と確認できる場合だけ旧接続を選んでください。未選択では接続図を保持します。</p>':''}<label class="nvsField"><span>接続候補の扱い</span><select data-nvs-plot-redraw="${escapeHtml(fresh.id)}"><option value="">今回は保留（接続図を保持）</option><option value="new" ${draft.redrawChoices[fresh.id]==='new'?'selected':''}>別の接続として追加</option>${old.map(([,e])=>{const l=graph.links.find(row=>row.id===e.id);return `<option value="${escapeHtml('link:'+e.id)}" ${draft.redrawChoices[fresh.id]==='link:'+e.id?'selected':''}>接続 [${escapeHtml(e.id)}]${uncertainIds.includes(e.id)?'（旧階未確定）':''} ${escapeHtml(nodeName(l?.from))} → ${escapeHtml(nodeName(l?.to))} / ${escapeHtml(NVS_LINK_TYPES[l?.kind]||l?.kind||"種類未記入")} / ラベル: ${escapeHtml(l?.label||"なし")}${l?.detail?" / 補足: "+escapeHtml(l.detail):""} / 元配線: ${escapeHtml(nvsPlotWireRefs(l||{}).join(" / ")||"対応なし")} に対応</option>`;}).join('')}</select></label></article>`).join('');
+  const conflictView=row=>{
+    const conflict=merged.conflicts.find(c=>c.id==='plot-wire:'+row.id);if(!conflict)return '';
+    const names=pair=>pair.map(id=>escapeHtml(nodeName(id))).join(' → ');
+    return `<p class="nvsNotice">手修正済みの接続先: ${names(conflict.current)} / 図面の候補: ${names(conflict.candidate)}。両端を一組で扱います。</p>${conflict.arrowUncertain?'<p class="nvsNotice">両端の機器が変わるため、図面を選ぶと図示矢印は「方向なし」になります。接続一覧で必要な向きを選び直してください。</p>':''}<label class="nvsField"><span>この接続の反映方法</span><select data-nvs-plot-link-decision="${escapeHtml(conflict.id)}"><option value="keep" ${conflict.decision==='keep'?'selected':''}>手修正した接続先を保持</option><option value="drawing" ${conflict.decision==='drawing'?'selected':''}>図面の候補へ両端を更新</option></select></label>`;
+  };
+  const renderRow=(r,i)=>`<article class="nvsEntry"><strong>${escapeHtml(r.title)}</strong><p class="nvsHint">${r.valid?(states[i].deferred?'保留中（反映対象外）':states[i].conflict?'手修正した接続先との違いを確認':states[i].needsConfirmation?'要確認：'+escapeHtml(states[i].reasons.join(' / ')):states[i].confirmed?'確認済み':'保存済み指定'):escapeHtml(r.reason||'接続先を選択してください')}${r.wireKeys.length>1?' / '+escapeHtml(nvsPlotBasis(r,a).join):''}</p><div class="nvsGrid"><label class="nvsField"><span>始点の機器</span><small class="nvsHint">${escapeHtml(nvsPlotBasis(r,a).from)}</small><select data-nvs-plot-row="${i}" data-nvs-plot-side="from">${options(r.from)}</select></label><label class="nvsField"><span>終点の機器</span><small class="nvsHint">${escapeHtml(nvsPlotBasis(r,a).to)}</small><select data-nvs-plot-row="${i}" data-nvs-plot-side="to">${options(r.to)}</select></label><label class="nvsField"><span>接続種類${r.kindAssumed?'（仮設定）':''}</span><small class="nvsHint">${escapeHtml(nvsPlotBasis(r,a).kind)}</small><select data-nvs-plot-row="${i}" data-nvs-plot-side="kind">${!r.kind?'<option value="" selected>要確認・種類を選択</option>':''}${Object.entries(NVS_LINK_TYPES).map(([key,label])=>`<option value="${key}" ${key===r.kind?'selected':''}>${label}</option>`).join('')}</select></label></div>${conflictView(r)}${r.valid&&states[i].reasons.length&&!states[i].deferred?`<label class="nvsField nvsCheck"><span>この候補の機器・種類・経路を確認した</span><input type="checkbox" data-nvs-plot-confirm="${i}" ${states[i].confirmed?'checked':''}></label>`:''}</article>`;
+  const reviewRows=a.rows.map((r,i)=>({r,i})).filter(({r,i})=>!r.valid||states[i].reasons.length||states[i].conflict||states[i].deferred),readyRows=a.rows.map((r,i)=>({r,i})).filter(({r,i})=>r.valid&&!states[i].reasons.length&&!states[i].conflict&&!states[i].deferred);
+  // 展開状態は候補の表示だけに持つ。閉じた明示接続には全機器の選択肢を作らない。
+  const opened=new Set(draft.openViews||[]),viewAttrs=key=>`data-nvs-plot-view="${escapeHtml(key)}" data-nvs-plot-token="${draft.viewToken}" ${opened.has(key)?'open':''}`;
+  const assetName=key=>a.assets.find(asset=>asset.key===key)?.label||'未指定';
+  const readyView=()=>readyRows.map(({r,i})=>{const key='row:'+r.id;return `<details ${viewAttrs(key)}><summary>${escapeHtml(r.title)}：${escapeHtml(assetName(r.from))} → ${escapeHtml(assetName(r.to))} / ${escapeHtml(NVS_LINK_TYPES[r.kind]||r.kind)}</summary>${opened.has(key)?renderRow(r,i):''}</details>`;}).join('');
+  const rowsView=reviewRows.map(({r,i})=>renderRow(r,i)).join('')+(readyRows.length?`<details ${viewAttrs('ready')}><summary>保存済み指定 ${readyRows.length}件（追加選択なしでまとめて反映）</summary>${opened.has('ready')?readyView():''}</details>`:'');
+  return nvsCard('配線から接続系統図を作成',`<div data-nvs-plot-view-owner="${draft.viewToken}"><p class="nvsHint">全フロアの配線端点から叩き台を作ります。各欄の根拠を見て機器と接続種類を確認し、違う場合は選び直してください。線の交差・途中通過は接続しません。PoE給電は判定しません。</p><label class="nvsField"><span>端点から機器を探す距離（図面px・表示倍率に依存しません）</span><input type="number" min="0" max="200" data-nvs-plot-tolerance value="${escapeHtml(draft.pendingTolerance??String(a.tolerance))}"></label><p><strong>${a.assets.length}機器 / 保存済み指定 ${ready}件 / 要確認 ${pending}件 / 未確定・反映対象外 ${a.rows.filter(r=>!r.valid).length}件</strong></p>${rowsView||nvsEmpty(a.assets.length?'配線がまだありません。配置機器だけを構成図へ追加できます。':'配置図で機器を配置してから、候補を作り直してください。')}<p class="nvsHint">既存の手修正・手動削除は保持します。追加・更新の対象は ${NVS_SCENARIOS[draft.scenario]}構成です。</p>${rebindView}${redrawView}${[...a.warnings,...merged.warnings,...merged.rebindIssues].map(w=>`<p class="nvsNotice">${escapeHtml(w)}</p>`).join('')}<div class="nvsActions">${merged.rebindIssues.length?'':pending?nvsButton('要確認 '+pending+'件を確認してください','plot-apply').replace('<button','<button disabled'):nvsButton('確認済みの候補を反映'+(a.rows.some(r=>!r.valid)?'（未確定は除外）':''),'plot-apply','',true)}${nvsButton('今回は反映しない','plot-skip')}${nvsButton('キャンセル','plot-cancel')}</div></div>`);
+}
+function nvsPlotActionCurrent(button){
+  const owner=button.closest('[data-nvs-plot-view-owner]');
+  return owner?owner.dataset.nvsPlotViewOwner===nvsPlotDraft?.viewToken:!['plot-apply','plot-skip','plot-cancel'].includes(button.dataset.nvsAction);
+}
+// native details の展開は保存値・確認判断を変更しない。古い画面の遅延イベントも無視する。
+function nvsPlotViewToggle(e){
+  const t=e.target;if(!t.matches?.('details[data-nvs-plot-view]'))return false;
+  const d=nvsPlotDraft;if(!d||d.owner!==project||!t.isConnected||!nvsOverlay.contains(t)||t.dataset.nvsPlotToken!==d.viewToken)return true;
+  if(nvsPlotDraftIssue(d)){nvsRender();return true;}
+  const key=t.dataset.nvsPlotView;if(key!=='ready'&&!d.analysis.rows.some(row=>'row:'+row.id===key))return true;
+  const opened=new Set(d.openViews||[]);if(opened.has(key)===t.open)return true;
+  if(t.open)opened.add(key);else opened.delete(key);d.openViews=[...opened];
+  const scroll=nvsOverlay.querySelector('.nvsBody').scrollTop,focused=t.contains(t.ownerDocument?.activeElement);
+  nvsRender();nvsOverlay.querySelector('.nvsBody').scrollTop=scroll;
+  if(focused)[...nvsOverlay.querySelectorAll('details[data-nvs-plot-view]')].find(el=>el.dataset.nvsPlotView===key)?.querySelector('summary')?.focus({preventScroll:true});
+  return true;
 }
 function nvsPlotEdit(e){
-  const t=e.target;if(!t.hasAttribute('data-nvs-plot-tolerance')&&!t.hasAttribute('data-nvs-plot-row'))return false;
+  const t=e.target;if(!t.hasAttribute('data-nvs-plot-confirm')&&!t.hasAttribute('data-nvs-plot-tolerance')&&!t.hasAttribute('data-nvs-plot-row')&&!t.hasAttribute('data-nvs-plot-link-decision')&&!t.hasAttribute('data-nvs-plot-rebind')&&!t.hasAttribute('data-nvs-plot-redraw'))return false;
+  const d=nvsPlotDraft;if(!d||d.owner!==project)return true;
+  if(e.type==='input'){if(t.hasAttribute('data-nvs-plot-tolerance')&&(!t.closest||t.isConnected&&t.closest('[data-nvs-plot-view-owner]')?.dataset.nvsPlotViewOwner===d.viewToken))d.pendingTolerance=t.value;return true;}
   if(e.type!=='change')return true;
-  const d=nvsPlotDraft;if(!d||d.owner!==project)return true;const a=d.analysis;
-  if(t.hasAttribute('data-nvs-plot-tolerance'))d.analysis=nvsPlotAnalyze(project,t.value,a.choices);
-  else {const row=a.rows[Number(t.dataset.nvsPlotRow)],side=t.dataset.nvsPlotSide;if(row&&['from','to','kind'].includes(side)){a.choices[row.id]={...a.choices[row.id],[side]:t.value};d.analysis=nvsPlotAnalyze(project,a.tolerance,a.choices);}}
-  const scroll=nvsOverlay.querySelector('.nvsBody').scrollTop;nvsRender();nvsOverlay.querySelector('.nvsBody').scrollTop=scroll;return true;
+  if(typeof t.closest==='function'&&(!t.isConnected||t.closest('[data-nvs-plot-view-owner]')?.dataset.nvsPlotViewOwner!==d.viewToken))return true;
+  if(nvsPlotDraftIssue(d)){d.linkDecisions={};d.rebindings={};d.redrawChoices={};nvsRender();return true;}const a=d.analysis;
+  if(t.hasAttribute('data-nvs-plot-confirm')){const row=a.rows[Number(t.dataset.nvsPlotConfirm)];if(row)a.choices[row.id]={...a.choices[row.id],confirmed:!!t.checked};}
+  else if(t.hasAttribute('data-nvs-plot-tolerance')){const value=t.value.trim(),parsed=Number(value);if(value===''||!Number.isFinite(parsed)||parsed<0||parsed>200){d.pendingTolerance=t.value;toast('検索距離は0〜200の数値で入力してください。候補は変更していません。','warn');return true;}d.pendingTolerance=null;const choices=nvsClone(a.choices);for(const c of Object.values(choices))delete c.confirmed;d.analysis=nvsPlotAnalyze(project,t.value,choices);d.linkDecisions={};d.rebindings={};d.redrawChoices={};}
+  else if(t.hasAttribute('data-nvs-plot-redraw')){d.redrawChoices[t.dataset.nvsPlotRedraw]=t.value;d.linkDecisions={};}
+  else if(t.hasAttribute('data-nvs-plot-rebind')){d.rebindings[t.dataset.nvsPlotRebind]=t.value;d.linkDecisions={};}
+  else if(t.hasAttribute('data-nvs-plot-link-decision')){d.linkDecisions[t.dataset.nvsPlotLinkDecision]=t.value==='drawing'?'drawing':'keep';}
+  else {const row=a.rows[Number(t.dataset.nvsPlotRow)],side=t.dataset.nvsPlotSide;if(row&&['from','to','kind'].includes(side)){a.choices[row.id]={...a.choices[row.id],[side]:t.value};delete a.choices[row.id].confirmed;d.analysis=nvsPlotAnalyze(project,a.tolerance,a.choices);d.linkDecisions={};d.rebindings={};d.redrawChoices={};}}
+  const scroll=nvsOverlay.querySelector('.nvsBody').scrollTop,focused=t.ownerDocument?.activeElement===t;
+  const attrs=['data-nvs-plot-row','data-nvs-plot-side','data-nvs-plot-confirm','data-nvs-plot-tolerance','data-nvs-plot-redraw','data-nvs-plot-rebind','data-nvs-plot-link-decision'].filter(key=>t.hasAttribute(key));
+  nvsRender();nvsOverlay.querySelector('.nvsBody').scrollTop=scroll;
+  if(focused)[...nvsOverlay.querySelectorAll('input,select')].find(el=>attrs.every(key=>el.getAttribute(key)===t.getAttribute(key)))?.focus({preventScroll:true});
+  return true;
 }
 function nvsPlotApply(){
   const d=nvsPlotDraft;if(!d||d.owner!==project||d.scenario!==nvsView.scenario)throw new Error('配線の候補を開き直してください');
-  if(d.analysis.signature!==nvsPlotSignature(project))throw new Error('確認中に配置・配線が変わりました。候補を開き直してください');
-  const n=nvsEnsure(),before=nvsClone(n.topology[d.scenario]),result=nvsPlotMerge(before,nvsPlotCandidate(project,d.analysis));
+  const issue=nvsPlotDraftIssue(d);if(issue){d.linkDecisions={};d.rebindings={};d.redrawChoices={};nvsRender();throw new Error(issue);}
+  if(d.pendingTolerance!==null)throw new Error('端点から機器を探す距離の入力を確定してから反映してください。');
+  const n=nvsEnsure(),before=nvsClone(n.topology[d.scenario]),candidate=nvsPlotCandidate(project,d.analysis),result=nvsPlotMerge(before,candidate,d.linkDecisions,d.rebindings,{rows:nvsPlotRedrawRows(before,candidate,project),choices:d.redrawChoices});
+  if(result.rebindIssues.length)throw new Error(result.rebindIssues.join('\n'));
+  const held=nvsPlotResolveRedraw(before,candidate,nvsPlotRedrawRows(before,candidate,project),d.redrawChoices).held;
+  const pending=d.analysis.rows.filter(r=>!held.has('plot-wire:'+r.id)&&nvsPlotReviewState(r,d.analysis).needsConfirmation);if(pending.length)throw new Error('座標・種類・区間結合から推定した '+pending.length+'件について、候補の確認欄をチェックしてください。');
   result.graph.plotSync.tolerance=d.analysis.tolerance;
   const copy={...n,topology:{...n.topology,[d.scenario]:result.graph}};nvsValidate(copy);
+  const originalGraph=n.topology[d.scenario],oldUndo=nvsPlotUndo;
   const wires=project.floors.flatMap(f=>f.wires.map(w=>({w,before:w.connection?nvsClone(w.connection):null})));
-  // 利用者が明示的に選び直した端点だけ固定する。自動候補は再生成時にも座標を調べる。
-  for(const row of d.analysis.rows){const choice=d.analysis.choices[row.id];if(!choice)continue;for(const side of ['from','to'])if(Object.hasOwn(choice,side)){const end=row.ends[side==='from'?0:1];end.wire.connection={...end.wire.connection,[end.side]:choice[side]||'none'};}if(choice.kind)for(const f of project.floors)for(const w of f.wires)if(row.wireKeys.includes(nvsPlotWireKey(f,w)))w.connection={...w.connection,kind:choice.kind};}
-  result.graph.plotSync.signature=nvsPlotSignature(project);
-  n.topology[d.scenario]=result.graph;nvsPlotUndo={owner:project,scenario:d.scenario,before,after:JSON.stringify(result.graph),wires:wires.map(x=>({...x,after:JSON.stringify(x.w.connection||null)}))};
-  nvsPlotDraft=null;markDirty();nvsRender();nvsOverlay.querySelector('.nvsBody').scrollTop=0;toast(`系統図に反映しました（追加 ${result.added} / 更新 ${result.updated}）。機器・接続は引き続き編集できます。`,'ok');
+  try{
+    // 利用者が明示的に選び直した端点だけ固定する。自動候補は再生成時にも座標を調べる。
+    for(const row of d.analysis.rows){const choice=d.analysis.choices[row.id];if(!choice)continue;for(const side of ['from','to'])if(Object.hasOwn(choice,side)){const end=row.ends[side==='from'?0:1];end.wire.connection={...end.wire.connection,[end.side]:choice[side]||'none'};}if(choice.kind)for(const f of project.floors)for(const w of f.wires)if(row.wireKeys.includes(nvsPlotWireKey(f,w)))w.connection={...w.connection,kind:choice.kind};}
+    result.graph.plotSync.signature=result.needsReview?'':nvsPlotSignature(project);
+    delete result.graph.plotSync.dismissedSignature;
+    n.topology[d.scenario]=result.graph;nvsPlotUndo={owner:project,scenario:d.scenario,before,after:JSON.stringify(result.graph),wires:wires.map(x=>({...x,after:JSON.stringify(x.w.connection||null)}))};
+    nvsPlotDraft=null;markDirty();nvsRender();nvsOverlay.querySelector('.nvsBody').scrollTop=0;toast(`系統図に反映しました（追加 ${result.added} / 更新 ${result.updated}）。機器・接続は引き続き編集できます。`,'ok');
+  }catch(error){
+    n.topology[d.scenario]=originalGraph;for(const {w,before:connection} of wires){if(connection)w.connection=connection;else delete w.connection;}
+    nvsPlotUndo=oldUndo;nvsPlotDraft=d;
+    try{markDirty();nvsRender();}catch{}throw error;
+  }
+}
+// 「保留」は接続図を変えず未判断のまま。この操作だけが現在の図面変更を明示的に見送る。
+function nvsPlotSkip(){
+  const d=nvsPlotDraft,issue=nvsPlotDraftIssue(d);if(issue)throw new Error(issue);
+  const n=nvsEnsure(),before=n.topology[d.scenario],oldUndo=nvsPlotUndo,graph=nvsClone(before);
+  graph.plotSync=graph.plotSync||{nodes:{},links:{}};
+  graph.plotSync.dismissedSignature=nvsPlotSignature(project);
+  nvsValidate({...n,topology:{...n.topology,[d.scenario]:graph}});
+  try{n.topology[d.scenario]=graph;nvsPlotDraft=null;nvsPlotUndo=null;markDirty();nvsRender();toast('今回の図面変更は接続図へ反映しません。接続図はそのまま保持しました。','ok');}
+  catch(error){n.topology[d.scenario]=before;nvsPlotDraft=d;nvsPlotUndo=oldUndo;try{markDirty();nvsRender();}catch{}throw error;}
 }
 // 図面から削除済みで、接続のない未編集の自動生成ブロックだけを提案書から外す。
 // 案件内の接続図は削除せず、交換履歴や手動編集の判断材料として保持する。
@@ -9346,14 +9640,55 @@ function nvsProposalStaleBlocks(p,graph){
       Object.entries(prior.value||{}).every(([key,value])=>JSON.stringify(node[key])===JSON.stringify(value));
   }).map(node=>node.id));
 }
+// 手編集や接続履歴のため提案に残る旧機器は削除せず、現図面にない事実を確認事項へ渡す。
+function nvsProposalRetainedBlocks(p,graph){
+  if(!graph?.plotSync?.nodes)return [];
+  const live=new Set(nvsAssets(p).map(a=>a.key)),tracked=new Set(Object.values(graph.plotSync.nodes).map(row=>row.id));
+  return graph.nodes.filter(node=>tracked.has(node.id)&&(node.assetKeys||[]).length>0&&(node.assetKeys||[]).every(key=>!live.has(key)));
+}
+// 最後に明示反映した図面でも元配線がなく、生成履歴との対応も編集なしも確定できる接続だけを出力から外す。
+// 手編集・旧版の多対一・一部区間のみ不在・見送りや未確認の図面変更は推測で除外しない。
+function nvsProposalStaleLinks(p,graph){
+  if(!graph?.plotSync?.signature||graph.plotSync.dismissedSignature)return new Set();
+  // 全図面の現在署名との一致だけで判定すると、型番変更だけで撤去履歴が再出力される。
+  // 既存の反映時スナップショットから、元配線の不在を確認する。解釈不能な旧署名は保持する。
+  let reviewed;
+  try{const snapshot=JSON.parse(graph.plotSync.signature);
+    if(!Array.isArray(snapshot)||snapshot.some(f=>!f||typeof f.id!=='string'||!Array.isArray(f.wires)||f.wires.some(w=>!w||typeof w.id!=='string')))return new Set();
+    reviewed=new Set(snapshot.flatMap(f=>f.wires.map(w=>nvsPlotWireKey(f,w))));
+  }catch{return new Set();}
+  const live=new Set(p.floors.flatMap(f=>f.wires.map(w=>nvsPlotWireKey(f,w)))),tracked=new Map();
+  for(const prior of Object.values(graph.plotSync?.links||{})){const rows=tracked.get(prior.id)||[];rows.push(prior);tracked.set(prior.id,rows);}
+  return new Set(graph.links.filter(link=>{
+    const rows=tracked.get(link.id);if(rows?.length!==1)return false;
+    const prior=rows[0],value=prior.value,refs=nvsPlotWireRefs(link);
+    if(prior.manual||(prior.manualFields||[]).length||!value||!refs.length||refs.some(key=>live.has(key)||reviewed.has(key)))return false;
+    if(!['from','to','kind','wireKey'].every(key=>typeof value[key]==='string'&&value[key]))return false;
+    const keys=new Set([...Object.keys(value),...Object.keys(link)]);keys.delete('id');
+    return [...keys].every(key=>JSON.stringify(link[key])===JSON.stringify(value[key]));
+  }).map(link=>link.id));
+}
+function nvsProposalOutput(p,scenario,source=nvsEnsure(p).topology[scenario]){
+  const graph=nvsClone(source||{nodes:[],links:[]}),links=scenario==='proposed'?nvsProposalStaleLinks(p,graph):new Set();
+  graph.links=graph.links.filter(row=>!links.has(row.id));
+  const nodes=scenario==='proposed'?nvsProposalStaleBlocks(p,graph):new Set();
+  graph.nodes=graph.nodes.filter(row=>!nodes.has(row.id));
+  return {graph,links,nodes};
+}
 function nvsPlotStatus(p=project,scenario=nvsView.scenario){
   const g=nvsEnsure(p).topology[scenario],missing=nvsMissingWireLinks(p,scenario);
-  const warning=missing.length?'<p class="nvsNotice">施工配線が見つからない接続 '+missing.length+'件。旧接続を保持しています。接続一覧で対応配線を再設定するか、不要な接続を削除してください。</p>':'';
-  const stale=scenario==='proposed'?nvsProposalStaleBlocks(p,g):new Set();
+  const output=nvsProposalOutput(p,scenario,g),retained=missing.filter(row=>!output.links.has(row.link.id));
+  const warning=(output.links.size?'<p class="nvsHint">元配線がない未編集の自動接続 '+output.links.size+'件は提案書に含めず、案件の接続一覧には履歴として残しています。</p>':'')+(retained.length?'<p class="nvsNotice">図面と異なる旧接続 '+retained.length+'件を出力にも保持します。現行配線との一致は未確認です。接続一覧で対応と接続先を確認してください。</p>':'');
+  const stale=output.nodes;
   const staleNotice=stale.size?'<p class="nvsNotice">交換前の自動生成ブロック '+stale.size+'件は提案書に含めず、案件には残しています。不要なら下の「接続ブロック」から削除してください。</p>':'';
-  if(!g.plotSync)return warning;
+  const retainedBlocks=scenario==='proposed'?nvsProposalRetainedBlocks(p,output.graph):[];
+  const retainedNotice=retainedBlocks.length?'<p class="nvsNotice">現在の図面に対応する配置機器がないブロック '+retainedBlocks.length+'件を提案にも保持します。現行設備として示すか、接続ブロックで確認してください。</p>':'';
+  if(!g.plotSync)return warning+retainedNotice;
   const disconnected=g.nodes.filter(n=>!g.links.some(l=>l.from===n.id||l.to===n.id));
-  return warning+staleNotice+(g.plotSync.signature!==nvsPlotSignature(p)?'<p class="nvsNotice">図面の配置・配線が生成時から変わっています。「配線から系統図を作る」で変更を確認・反映してください。</p>':'')+(disconnected.length?`<p class="nvsHint">接続が未設定の機器: ${disconnected.map(n=>escapeHtml(nvsNodeInfo(n,p).name)).join(' / ')}。接続一覧から追加・修正できます。</p>`:'');
+  const sourceState=nvsPlotSourceState(g,p);
+  const missingTarget=Object.values(g.plotSync.links||{}).some(e=>!g.links.some(l=>l.id===e.id));
+  const sourceNotice=sourceState==='changed'&&missingTarget?'<p class="nvsNotice">元配線に対応する接続IDが見つかりません。手動削除か旧版編集かは未確定です。「配線から系統図を作る」で対応を選び直すか、今回は反映しないを選べます。</p>':sourceState==='changed'?'<p class="nvsNotice">図面の配置・配線が生成時から変わっています。「配線から系統図を作る」で変更を確認・反映してください。</p>':sourceState==='dismissed'?'<p class="nvsHint">図面と接続図に差異があります（今回は反映しない選択済み）。接続図は以前の内容を保持しています。</p>':'';
+  return warning+staleNotice+retainedNotice+sourceNotice+(disconnected.length?`<p class="nvsHint">接続が未設定の機器: ${disconnected.map(n=>escapeHtml(nvsNodeInfo(n,p).name)).join(' / ')}。接続一覧から追加・修正できます。</p>`:'');
 }
 function nvsPlotUndoApply(){
   const u=nvsPlotUndo;if(!u||u.owner!==project||u.scenario!==nvsView.scenario)throw new Error('取り消せる系統図生成がありません');
@@ -9573,7 +9908,7 @@ function nvsMiiTopologyNotesSource(source){
         const ctx=context(),pages=[];let rows=[];
         const flush=()=>{if(rows.length){pages.push({kind:WARNING,rows});rows=[];}if(pages.length+details.pages.length>PAGE_LIMIT)throw new Error('確認事項と詳細の続頁は'+PAGE_LIMIT+'ページ以内に整理してください。');};
         for(const item of items){
-          const heading=wrapRaw('接続 '+item.index+' / '+item.kind+'：'+item.label,ctx,true).map(row=>({text:row.text,role:'name'}));
+          const heading=wrapRaw((item.category==='retained-node'?'機器 ':'接続 ')+item.index+' / '+item.kind+'：'+item.label,ctx,true).map(row=>({text:row.text,role:'name',category:item.category}));
           const body=wrapRaw(item.notice||warning.scenario+'構成の元の施工配線 '+item.missing+' / '+item.total+' 区間が見つかりません。旧接続を保持して表示しています。\n撤去・変更内容と接続先を確認し、構成図の対応配線を更新してください。',ctx).map(row=>({text:row.text,role:'notice'}));
           if(heading.length>=ROWS-1)throw new Error('接続の機器名だけで1ページを超えています。表示名を整理してください。');
           let cursor=0;while(cursor<body.length){
@@ -9585,8 +9920,8 @@ function nvsMiiTopologyNotesSource(source){
         flush();return {...details,pages:[...pages,...details.pages],wireCount:items.length};
       }catch(error){return failure(error.message||'配線の確認事項を作成できません。');}
     }
-    const pageTitle=item=>item.kind===WARNING?'構成図の確認事項（旧接続）':'構成ノードの詳細（全文）';
-    const pageSubtitle=item=>item.kind===WARNING?'施工配線との対応を確認してから、この構成をご利用ください。':'構成図で省略される詳細を記載しています。';
+    const pageTitle=item=>item.kind===WARNING?(item.rows.some(row=>row.category==='retained-node')?'構成図の確認事項（機器・接続）':'構成図の確認事項（接続）'):'構成ノードの詳細（全文）';
+    const pageSubtitle=item=>item.kind===WARNING?(item.rows.some(row=>row.category==='retained-node')?'現在の配置機器と施工配線を確認してから、この構成をご利用ください。':'施工配線との対応を確認してから、この構成をご利用ください。'):'構成図で省略される詳細を記載しています。';
     function drawCanvas(canvas,item,idx){
       const ctx=canvas.getContext('2d',{alpha:false});
       ctx.save();ctx.fillStyle='#FFFFFF';ctx.fillRect(0,0,W,H);ctx.fillStyle='#082653';ctx.fillRect(0,0,W,92.4);
@@ -9610,7 +9945,7 @@ function nvsMiiTopologyNotesSource(source){
     drawPage=async function(canvas,item,idx){if(item.kind===KIND||item.kind===WARNING)return drawCanvas(canvas,item,idx);return baseDraw(canvas,item,idx);};
     validate=function(){const errors=baseValidate(),error=plan().error;return error?[...errors,error]:errors;};
     window.__nvsMiiTopologyNotes={drawPpt,
-      lead(){const result=plan();return m2020SystemLead()+(result.error?' ／ 詳細の出力制限は次頁をご確認ください':(result.wireCount?' ／ 旧接続の要確認 '+result.wireCount+'件（次頁）':'')+(result.pages.some(page=>page.kind===KIND)?' ／ 詳細全文は次頁以降に記載':''));},
+      lead(){const result=plan();return m2020SystemLead()+(result.error?' ／ 詳細の出力制限は次頁をご確認ください':(result.wireCount?' ／ 接続の要確認 '+result.wireCount+'件（次頁）':'')+(result.pages.some(page=>page.kind===KIND)?' ／ 詳細全文は次頁以降に記載':''));},
       assertOutput(){const error=plan().error;if(error)throw new Error(error);}
     };
     if(window.MII_TEST)window.MII_TEST.nvsTopologyNotes=()=>clone(plan());
@@ -9876,6 +10211,8 @@ function nvsMiiTopologyQuantitySource(source){
   const normalized="return{id:String(n.id||`N${String(i+1).padStart(2,'0')}`),type:TOPO_NODE_TYPES.some(x=>x[0]===n.type)?n.type:'other',name:String(n.name||topoTypeLabel(n.type)),location:String(n.location||''),detail:String(n.detail||''),qty,col,row,x,y}";
   // Undoが旧数量を戻しても、台帳連動中は入力・Canvas・PPTに同じ現在数量を渡す。
   replace(normalized,normalized.replace(',qty,col,row,x,y}',',qty:nvsMiiNodeQuantity(n)??qty,col,row,x,y')+",...(n._nvsBinding&&typeof n._nvsBinding==='object'&&!Array.isArray(n._nvsBinding)?{_nvsBinding:clone(n._nvsBinding)}:{})}",2);
+  // 接続IDはVASの既存項目。並行接続の手編集を端点や順番で別の配線へ割り当てない。
+  replace("return{from:String(l.from||''),to:String(l.to||''),kind,label,direction:","return{...(typeof l.id==='string'&&l.id?{id:l.id}:{}),from:String(l.from||''),to:String(l.to||''),kind,label,direction:",2);
   const quantity='<label>数量<input id="easyNodeQty" type="number" min="1" max="999" value="${Math.max(1,Number(n.qty)||1)}"></label><div class="topoEasyHint techHint">同じ種類・同じ接続先の機器は1ブロックにまとめ、数量で表します。例：カメラ ×20台</div>';
   replace(quantity,'${nvsMiiNodeQuantityHtml(n)}',2);
   replace("if(cams.length===1)cams[0].qty=Math.max(1,Number(project.system.cameraCount)||1);","if(cams.length===1&&nvsMiiNodeQuantity(cams[0])===undefined)cams[0].qty=Math.max(1,Number(project.system.cameraCount)||1);");
@@ -9887,6 +10224,32 @@ function nvsMiiTopologyQuantitySource(source){
   replace(editorQuantity,"const boundQuantity=nvsMiiNodeQuantity(n);n.qty=boundQuantity===undefined?Math.max(1,Math.min(999,Number(body.querySelector('#easyNodeQty')?.value)||1)):boundQuantity;nvsMiiRefreshNodeQuantity(body,n);");
   const build='async function buildPptxBlob(nvsOutput=null){';
   replace(build,build+'window.__nvsMiiAssertTopologyQuantity?.();');
+  // 同じ端点の線は原版の経路共有を保ち、編集/Canvas/PPTに同じ識別注記を出す。
+  const parallelInstall=()=>{
+    // 幹線候補の同期探索1回だけで再利用。座標を編集する操作には持ち越さない。
+    const findBus=v1925TryBus;v1925TryBus=function(comp){
+      const geom=topoGeom,worldSpec=topoFieldWorldSpec,cache=new Map();let world;
+      topoFieldWorldSpec=function(){return {...(world||(world=worldSpec()))};};
+      topoGeom=function(node){if(!cache.has(node))cache.set(node,geom(node));return {...cache.get(node)};};
+      try{return findBus(comp);}finally{topoGeom=geom;topoFieldWorldSpec=worldSpec;}
+    };
+
+    function nvsParallelNotes(){
+      const notes=[];for(const rows of nvsPlotParallelGroups(project.topology||{})){
+        const first=rows[0],a=topoNodeById(first.from),b=topoNodeById(first.to);if(!a||!b)continue;
+        const path=topoPath(a,b,first.route||'auto'),point=topoLabelPoint(path);
+        rows.forEach((link,index)=>notes.push({link,x:point[0],y:point[1]+index*24,label:(topoLinkStyle(link.kind).label||'接続')+' '+(index+1)+'/'+rows.length}));
+      }return notes;
+    }
+    const bounds=v1931OutputBounds;v1931OutputBounds=function(){const b=bounds();for(const n of nvsParallelNotes()){b.minX=Math.min(b.minX,n.x-32);b.maxX=Math.max(b.maxX,n.x+32);b.minY=Math.min(b.minY,n.y-11);b.maxY=Math.max(b.maxY,n.y+11);}b.bw=Math.max(1,b.maxX-b.minX);b.bh=Math.max(1,b.maxY-b.minY);return b;};
+    const svg=easySvgMarkup;easySvgMarkup=function(tp,temp){return svg(tp,temp)+nvsParallelNotes().map(n=>'<g class="topoLineLabelHit" data-vlink-label="'+project.topology.links.indexOf(n.link)+'" data-nvs-parallel-note="'+esc(n.link.id||'')+'"><title>'+esc(n.link.label||n.label)+'</title><rect x="'+(n.x-32)+'" y="'+(n.y-11)+'" width="64" height="22" rx="6" fill="white" stroke="#0B2C55"/><text x="'+n.x+'" y="'+(n.y+4)+'" text-anchor="middle" fill="#0B2C55" font-size="12">'+esc(n.label)+'</text></g>').join('');};
+    const canvas=drawTopoLine;drawTopoLine=function(ctx,l){canvas(ctx,l);const n=nvsParallelNotes().find(n=>n.link===l);if(!n)return;ctx.save();ctx.fillStyle='#FFFFFF';ctx.strokeStyle='#0B2C55';roundRect(ctx,n.x-32,n.y-11,64,22,6);ctx.fill();ctx.stroke();text(ctx,n.label,n.x-29,n.y-8,58,16,{size:12,minSize:10,bold:true,color:'#0B2C55',align:'center',maxLines:1});ctx.restore();};
+    const ppt=addTopoLinkP;addTopoLinkP=function(slide,l){ppt(slide,l);const n=nvsParallelNotes().find(n=>n.link===l);if(!n)return;const fit=v1931ReportFit(),x=fit.tx+n.x*fit.s,y=fit.ty+n.y*fit.s;addShapeP(slide,'roundRect',x-32*fit.s,y-11*fit.s,64*fit.s,22*fit.s,'FFFFFF','0B2C55',.5);slide.addText(n.label,{x:X(x-29*fit.s),y:Y(y-8*fit.s),w:Wd(58*fit.s),h:Ht(16*fit.s),margin:0,fontFace:'BIZ UDPGothic',fontSize:6*fit.s,bold:true,color:'0B2C55',align:'center',fit:'shrink'});};
+    if(window.MII_TEST)window.MII_TEST.nvsParallelNotes=()=>nvsParallelNotes().map(n=>({id:n.link.id,x:n.x,y:n.y,label:n.label}));
+  };
+  const mainStart=source.indexOf("(function(){'use strict';"),mainEnd=source.indexOf('<'+'/script>',mainStart),close=source.lastIndexOf('})();',mainEnd);
+  if(mainStart<0||mainEnd<0||close<mainStart)throw new Error('MII並行線の差込み箇所を確認できません');
+  source=source.slice(0,close)+'\n'+nvsPlotParallelGroups.toString()+'\n('+parallelInstall.toString()+')();\n'+source.slice(close);
   return source;
 }
 
@@ -10049,10 +10412,11 @@ function nvsMiiInstallProposalForm(session){
     }
     const graph=owner.nvs?.topology?.proposed,hasDevices=devices.length>0;
     const missing=hasDevices&&!graph?.nodes?.length;
-    const changed=hasDevices&&!missing&&graph?.plotSync?.signature!==nvsPlotSignature(owner);
+    const connectionState=nvsPlotSourceState(graph,owner),changed=hasDevices&&!missing&&['changed','dismissed'].includes(connectionState);
     connection.classList.toggle('nvsProposalHidden',!missing&&!changed);
     connection.querySelector('[data-proposal-connection-note]').textContent=missing
       ?'接続図はまだありません。図面の機器・配線から候補を作り、接続先を確認できます。'
+      :connectionState==='dismissed'?'図面と接続図に差異があります（今回は反映しない選択済み）。接続図は以前の内容です。'
       :'図面の機器・配線が変わりました。候補を確認して接続図に反映できます。';
     applyStep();
   }
@@ -10100,8 +10464,37 @@ function nvsMiiEqual(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 // 原版データ外にある確認状態・台帳数量・施工配線の参照も、再描画と出力中の変更検査に含める。
 function nvsMiiOutputStamp(p){return JSON.stringify([[p.nvs?.diagnostics||[],p.nvs?.areas||[]].map(rows=>rows.map(row=>[row.id,row.status])),nvsMiiEquipment(p).map(row=>[row.reportKey,row.quantity]),Object.keys(NVS_SCENARIOS).map(key=>nvsMiiWireWarnings(p,key))]);}
 function nvsMiiWireWarnings(p,scenario){
-  const unresolved=nvsUnresolvedWireLinks(p,scenario).map(({index,link,missing,labels,wires})=>({index:index+1,label:missing.length?missing.map(node=>nvsNodeInfo(node,p).name).join(' / '):'接続先未確認 / '+labels.join(' / '),kind:link?NVS_LINK_TYPES[link.kind]||'その他':'施工配線',notice:nvsUnresolvedWireNotice(p,{wires,labels,missing,pending:!link})}));
-  return {scenario:NVS_SCENARIOS[scenario],items:[...nvsMissingWireLinks(p,scenario).map(({index,link,missing,label})=>({index:index+1,label,kind:NVS_LINK_TYPES[link.kind]||'その他',missing:missing.length,total:new Set(link.wireKeys?.includes(link.wireKey)?link.wireKeys:[link.wireKey]).size})),...unresolved]};
+  const output=nvsProposalOutput(p,scenario);
+  const unresolved=nvsUnresolvedWireLinks(p,scenario).map(({index,link,missing,labels,wires})=>({category:'unresolved',index:index+1,label:missing.length?missing.map(node=>nvsNodeInfo(node,p).name).join(' / '):'接続先未確認 / '+labels.join(' / '),kind:link?NVS_LINK_TYPES[link.kind]||'その他':'施工配線',notice:nvsUnresolvedWireNotice(p,{wires,labels,missing,pending:!link})}));
+  const missing=nvsMissingWireLinks(p,scenario).map(({index,link,missing,label})=>({category:'missing',omitted:output.links.has(link.id),index:index+1,label,kind:NVS_LINK_TYPES[link.kind]||'その他',missing:missing.length,total:new Set(link.wireKeys?.includes(link.wireKey)?link.wireKeys:[link.wireKey]).size,
+    notice:output.links.has(link.id)?'元の施工配線が現図面にないため、未編集の自動接続はこの提案の接続図から除外しています。元接続と機器の履歴は案件内に保持しています。':'図面と異なる旧接続を保持して表示しています。現行配線との一致は未確認です。元の施工配線 '+missing.length+' 区間が見つかりません。接続一覧で対応配線と接続先を確認してください。'}));
+  const retainedNodes=(scenario==='proposed'?nvsProposalRetainedBlocks(p,output.graph):[]).map((node,index)=>({category:'retained-node',index:index+1,label:nvsNodeInfo(node,p).name,kind:NVS_NODE_TYPES[node.type]||node.type||'機器',notice:'現在の配置図に対応する機器がありません。このブロックは手編集・接続履歴を保護するため提案の接続図に保持しています。現行設備として示すか、接続ブロックで確認してください。'}));
+  // 元配線IDが残っていても、図面で接続先・種類を変更し未反映なら「配線なし」警告には現れない。
+  // 接続図を推測で直さず、既存の確認事項ページで提案と現在の図面の差を示す。
+  const differences=[];
+  if(scenario==='proposed'){
+    const graph=nvsEnsure(p).topology[scenario],state=nvsPlotSourceState(graph,p);
+    if(state!=='current'){
+      const rows=new Map(),refKey=keys=>JSON.stringify([...keys].sort());
+      for(const link of graph.links){const key=refKey(nvsPlotWireRefs(link)),list=rows.get(key)||[];list.push(link);rows.set(key,list);}
+      const analysis=nvsPlotAnalyze(p),assets=new Map(analysis.assets.map(asset=>[asset.key,asset.label]));
+      const keyFor=id=>{const keys=graph.nodes.find(node=>node.id===id)?.assetKeys||[];return keys.length===1?keys[0]:null;};
+      const oldName=id=>{const node=graph.nodes.find(node=>node.id===id);return node?nvsNodeInfo(node,p).name:'接続先未指定';};
+      for(const row of analysis.rows.filter(item=>item.valid)){
+        const matches=rows.get(refKey(row.wireKeys))||[],link=matches.length===1?matches[0]:null;
+        const ends=link?[keyFor(link.from),keyFor(link.to)]:[];
+        if(link&&ends.every(Boolean)&&nvsPlotSameEnds({from:ends[0],to:ends[1]},row)&&link.kind===row.kind)continue;
+        const old=link?oldName(link.from)+' → '+oldName(link.to):'対応する接続なし';
+        const fresh=(assets.get(row.from)||'接続先未指定')+' → '+(assets.get(row.to)||'接続先未指定');
+        differences.push({category:'difference',index:link?graph.links.indexOf(link)+1:graph.links.length+differences.length+1,
+          label:row.title,kind:NVS_LINK_TYPES[row.kind]||'施工配線',
+          notice:'現在の図面: '+fresh+' / '+(NVS_LINK_TYPES[row.kind]||row.kind)+'。提案の接続図: '+old+(link?' / '+(NVS_LINK_TYPES[link.kind]||link.kind):'')+'。'+
+            (state==='dismissed'?'「今回は反映しない」を選んだため、以前の接続図を保持しています。':'図面の変更を接続図へまだ反映していません。')+
+            'どちらの接続を提案するか確認し、「配線から系統図を作る」で対応を選んでください。'});
+      }
+    }
+  }
+  return {scenario:NVS_SCENARIOS[scenario],items:[...missing,...unresolved,...differences,...retainedNodes]};
 }
 function nvsMiiFields(row,keys){return Object.fromEntries(keys.filter(k=>row[k]!==undefined).map(k=>[k,nvsClone(row[k])]));}
 function nvsMiiPhotoSlotIds(row){
@@ -10252,8 +10645,7 @@ function nvsMiiProjection(p,scenario){
   const n=nvsEnsure(p),excluded=new Set(n.mii?.excludedEquipment||[]);
   const diagnostics=n.diagnostics.map(r=>({...nvsMiiFields(r,NVS_MII_DIAG),_nvsId:r.id}));
   const photoIds=[...new Set(n.diagnostics.flatMap(r=>r.photoIds||[]))];
-  const g=nvsClone(n.topology[scenario]||{nodes:[],links:[]});
-  if(scenario==='proposed'){const stale=nvsProposalStaleBlocks(p,g);if(stale.size)g.nodes=g.nodes.filter(row=>!stale.has(row.id));}
+  const g=nvsProposalOutput(p,scenario,n.topology[scenario]).graph;
   const equipmentRows=nvsMiiEquipment(p).filter(a=>!excluded.has(a.reportKey)),equipmentNames=nvsMiiEquipmentDisplayNames(equipmentRows);
   g.nodes=g.nodes.map(r=>{const info=nvsNodeInfo(r,p);delete r._nvsBinding;
     // 同じIDの別ノードと取り違えず、原版のUndoにも台帳対応と未対応時数量を保持する。
@@ -10388,13 +10780,17 @@ function nvsMiiApply(p,previous,next,scenario){
   if(changed(previous.topology,next.topology)){
     const before=n.topology[scenario]||{nodes:[],links:[]},g={...before,...nvsClone(next.topology)};
     // 提案用投影からだけ外した交換前ブロックは、MIIの自動同期で案件から消さない。
-    const retainedStale=scenario==='proposed'?nvsProposalStaleBlocks(p,before):new Set();
+    const output=nvsProposalOutput(p,scenario,before),retainedStale=output.nodes,retainedLinks=output.links;
     for(const row of before.nodes)if(retainedStale.has(row.id)&&!g.nodes.some(next=>next.id===row.id))g.nodes.push(nvsClone(row));
     g.nodes=g.nodes.map(r=>{const old=before.nodes.find(a=>a.id===r.id),binding=nvsMiiTopologyBinding(p,scenario,r),node={...old,...r,assetKeys:binding?[...binding.assetKeys]:retainedStale.has(r.id)?[...(old?.assetKeys||[])]:[]};
       // 名称・場所・注意事項の編集で、対応解除時に使う元の補助数量を表示値へ上書きしない。
       if(binding&&nvsNodeInfo(node,p).linked.length)node.qty=binding.fallbackQty;
       delete node._nvsBinding;return node;});
-    const used=new Set();g.links=g.links.map(r=>{const old=before.links.find(a=>!used.has(a.id)&&a.from===r.from&&a.to===r.to&&a.kind===r.kind);if(old)used.add(old.id);return {...old,...r,id:old?.id||nvsId()};});n.topology[scenario]=g;
+    const used=new Set();g.links=g.links.map(r=>{const old=r.id?before.links.find(a=>a.id===r.id&&!retainedLinks.has(a.id)&&!used.has(a.id)):before.links.find(a=>!retainedLinks.has(a.id)&&!used.has(a.id)&&a.from===r.from&&a.to===r.to&&a.kind===r.kind);if(old)used.add(old.id);return {...old,...r,id:old?.id||nvsId()};});
+    // 投影で除外した履歴は、資料側の編集・自動同期を削除操作と解釈しない。元の登録順も保つ。
+    const active=new Map(g.links.map(row=>[row.id,row]));
+    g.links=before.links.flatMap(row=>retainedLinks.has(row.id)?[nvsClone(row)]:active.has(row.id)?[active.get(row.id)]:[]).concat(g.links.filter(row=>!before.links.some(old=>old.id===row.id)));
+    n.topology[scenario]=g;
   }
   n.mii={...n.mii,schemaVersion:1,project:nvsClone(next),scenario,excludedEquipment:[...excluded]};
   n.mii.baseline=nvsMiiProjection(p,scenario);nvsMiiCaptureEquipment(p);nvsValidate(n);nvsValidateReferences(p);
@@ -10560,7 +10956,7 @@ async function nvsOpenMii(source=project,options={}){
   overlay.insertBefore(readiness,frame);
   const readinessText=readiness.querySelector('span'),issuesButton=readiness.querySelector('button');
   const scenarioSelect=overlay.querySelector('[data-mii-scenario]');scenarioSelect.disabled=true;
-  const refreshReadiness=()=>{const result=nvsMiiReadiness(frame.contentWindow?.MII_TEST),details=readiness.querySelector('details'),summary=details.querySelector('summary'),critical=result.state==='unknown'||result.criticalCount>0;const summaryText=result.state==='unknown'?'入力チェックを確認できません':result.topologyRequired?'出力前に接続図を作成（'+result.count+'件）':result.criticalCount?'数量・接続・表示上限を確認（'+result.criticalCount+'件）':result.count?'提出前の確認候補（'+result.count+'件）':'提出前の確認';if(summary.textContent!==summaryText)summary.textContent=summaryText;if(critical&&(!result.topologyRequired||result.criticalCount>1)&&details.dataset.critical!==summaryText)details.open=true;details.dataset.critical=critical?summaryText:'';readiness.style.background=critical?'#fff5df':'#f8fbf8';readiness.dataset.miiReadiness=result.state;if(readinessText.textContent!==result.text)readinessText.textContent=result.text;issuesButton.hidden=result.state!=='draft';const topologyGuide=readiness.querySelector('[data-mii-topology-guide]');topologyGuide.hidden=readonly||!result.topologyRequired;const wireNotice=readiness.querySelector('[data-mii-wire-notice]'),warnings=nvsMiiWireWarnings(source,session.scenario).items,missingCount=warnings.filter(item=>!item.notice).length,unresolvedCount=warnings.length-missingCount;wireNotice.hidden=!warnings.length;const wireText=[missingCount?'施工配線が見つからない旧接続 '+missingCount+'件。出力にも注意を記載します。「設計」で対応配線を確認してください。':'',unresolvedCount?nvsUnresolvedWireNotice(source)+'提案書にも確認事項を載せます。':''].filter(Boolean).join(' ');if(wireNotice.textContent!==wireText)wireNotice.textContent=wireText;session.refreshToolbar?.();return result;};
+  const refreshReadiness=()=>{const result=nvsMiiReadiness(frame.contentWindow?.MII_TEST),details=readiness.querySelector('details'),summary=details.querySelector('summary'),critical=result.state==='unknown'||result.criticalCount>0;const summaryText=result.state==='unknown'?'入力チェックを確認できません':result.topologyRequired?'出力前に接続図を作成（'+result.count+'件）':result.criticalCount?'数量・接続・表示上限を確認（'+result.criticalCount+'件）':result.count?'提出前の確認候補（'+result.count+'件）':'提出前の確認';if(summary.textContent!==summaryText)summary.textContent=summaryText;if(critical&&(!result.topologyRequired||result.criticalCount>1)&&details.dataset.critical!==summaryText)details.open=true;details.dataset.critical=critical?summaryText:'';readiness.style.background=critical?'#fff5df':'#f8fbf8';readiness.dataset.miiReadiness=result.state;if(readinessText.textContent!==result.text)readinessText.textContent=result.text;issuesButton.hidden=result.state!=='draft';const topologyGuide=readiness.querySelector('[data-mii-topology-guide]');topologyGuide.hidden=readonly||!result.topologyRequired;const wireNotice=readiness.querySelector('[data-mii-wire-notice]'),warnings=nvsMiiWireWarnings(source,session.scenario).items,omittedCount=warnings.filter(item=>item.omitted).length,missingCount=warnings.filter(item=>item.category==='missing'&&!item.omitted).length,unresolvedCount=warnings.filter(item=>item.category==='unresolved').length,differenceCount=warnings.filter(item=>item.category==='difference').length;wireNotice.hidden=!warnings.length;const wireText=[omittedCount?'元配線がない自動接続 '+omittedCount+'件は提案書から除外し、案件に履歴を保持しています。':'',missingCount?'図面と異なる旧接続 '+missingCount+'件を出力にも保持します。現行配線との一致は未確認です。「設計」で対応配線を確認してください。':'',unresolvedCount?nvsUnresolvedWireNotice(source)+'提案書にも確認事項を載せます。':'',differenceCount?'図面の配線と提案の接続図に差異がある候補 '+differenceCount+'件。接続先を確認してください。確認事項を提案書にも載せます。':''].filter(Boolean).join(' ');if(wireNotice.textContent!==wireText)wireNotice.textContent=wireText;session.refreshToolbar?.();return result;};
   let last=null,timer=null,poll=null,failed=false,loadTimer=null,finishLoad=null,outputStamp=null;const message=overlay.querySelector('[data-mii-sync]');
   const showMessage=(text,attention=false)=>{message.textContent=text;message.hidden=embedded&&!attention;};
   const session={frame,overlay,host:options.host,owner:source,scenario,ready:false,closed:false,suspended:false,
@@ -10614,6 +11010,7 @@ async function nvsOpenMii(source=project,options={}){
     if(b.dataset.nvsAction==='mii-topology'){
       if(readonly||source!==project||!refreshReadiness().topologyRequired)return;
       nvsMiiAssertSettled(session);nvsMiiAssertPhotosSettled(session);session.flush();
+      const collision=nvsPlotDuplicateWireKey(source);if(collision)throw new Error('保存データの別々の配線が同じ識別子になっています。誤接続を防ぐため接続図への反映を中止しました。案件データを保持して配線IDを確認してください。');
       const targetScenario=session.scenario;if(!embedded)session.close({render:false,restoreFocus:false});
       nvsView.scenario=targetScenario;if(!nvsOverlay)nvsOpen('design');nvsPlotReview();
       nvsOverlay?.querySelector('[data-nvs-action="plot-apply"]')?.focus({preventScroll:true});return;
