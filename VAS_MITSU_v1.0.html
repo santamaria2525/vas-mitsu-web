@@ -4990,7 +4990,7 @@ function initEmptyStateButtons(){
   els.heroCam.innerHTML = `${ic('camera')}<span>カメラで撮影</span>`;
   els.heroSample.innerHTML = `${ic('sample')}<span>サンプル図面で試す</span>`;
   els.heroLoad.innerHTML = `${ic('load')}<span>保存した案件を開く / JSON</span>`;
-  els.heroDemo.innerHTML = `<span class="hdRow">${ic('sample')}<span>完成例を見てみる</span></span><span class="hdCaption">2フロア・記入済み提案・接続図入り</span>`;
+  els.heroDemo.innerHTML = `<span class="hdRow">${ic('sample')}<span>完成例を見てみる</span></span><span class="hdCaption">保存した完成例 / 未登録なら初期例</span>`;
   els.heroPick.addEventListener('click', pickImage);
   els.heroCam.addEventListener('click', captureImage);
   els.heroSample.addEventListener('click', useSampleImage);
@@ -7629,21 +7629,105 @@ function nvsSeedDemoProposal(p,{roles,wires}){
   return {nodes:graph.nodes.length,links:graph.links.length,physicalSections:wireKeys.size};
 }
 
+// 完成例は通常の案件ZIPをそのまま保存する。案件の自動保存・通常保存・公開HTMLとは分離する。
+const NVS_DEMO_DB='vas_mitsu_completed_example_v1',NVS_DEMO_STORE='examples',NVS_DEMO_KEY='current';
+let nvsDemoStoreBusy=false;
+function nvsDemoStorageError(error){
+  if(error?.name==='QuotaExceededError')return new Error('完成例の保存容量が足りません。前の保存版は残っています。案件ZIPも保存してください。');
+  return new Error('このブラウザーの完成例保存を利用できません。前の保存版は変更していません。案件ZIPを保管して再登録してください。組込み例は保存・引継ぎの「初期完成例を開く（保存版は残す）」から開けます。');
+}
+function nvsDemoStoreAccess(mode,record,guard=()=>true){
+  return new Promise((resolve,reject)=>{
+    let request,db,transaction,settled=false,result;
+    const finish=(error,value)=>{if(settled)return;settled=true;clearTimeout(timer);try{db?.close();}catch{}error?reject(error):resolve(value);};
+    const fail=error=>finish(nvsDemoStorageError(error));
+    // openのblocked待ちだけを制限する。書込開始後は完了/中断通知を待ち、未確定を失敗扱いにしない。
+    const timer=setTimeout(()=>fail(),15000);
+    try{
+      if(!window.indexedDB)throw new Error('IndexedDB unavailable');
+      request=window.indexedDB.open(NVS_DEMO_DB,1);
+      request.onupgradeneeded=()=>{if(settled){try{request.transaction?.abort();}catch{}return;}const opened=request.result;if(!opened.objectStoreNames.contains(NVS_DEMO_STORE))opened.createObjectStore(NVS_DEMO_STORE);};
+      request.onerror=()=>fail(request.error);request.onblocked=()=>fail();
+      request.onsuccess=()=>{
+        db=request.result;if(settled){db.close();return;}
+        db.onversionchange=()=>db.close();
+        if(!guard()){finish(new Error('確認中に案件が変わりました。完成例は変更していません。'));return;}
+        try{
+          transaction=db.transaction(NVS_DEMO_STORE,mode==='read'?'readonly':'readwrite');clearTimeout(timer);
+          const store=transaction.objectStore(NVS_DEMO_STORE),operation=mode==='read'?store.get(NVS_DEMO_KEY):mode==='write'?store.put(record,NVS_DEMO_KEY):store.delete(NVS_DEMO_KEY);
+          operation.onsuccess=()=>{result=operation.result;if(!guard())try{transaction.abort();}catch{}};
+          // request成功では確定しない。quota/中断で失敗した場合は前のレコードを維持する。
+          transaction.oncomplete=()=>finish(null,result);transaction.onabort=()=>fail(transaction.error||operation.error);
+          transaction.onerror=()=>{};
+        }catch(error){if(transaction)try{transaction.abort();}catch{}fail(error);}
+      };
+    }catch(error){fail(error);}
+  });
+}
+function nvsCompletedExampleReady(owner){
+  if(project!==owner||!nvsRequireValidPendingInput())return false;
+  nvsMiiAssertSettled();nvsMiiAssertPhotosSettled();nvsMiiFlush();return project===owner;
+}
+async function nvsReadCompletedExample(){
+  const record=await nvsDemoStoreAccess('read');if(record==null)return null;
+  if(record.format!=='nvs.completed-example.v1'||!(record.bytes instanceof Uint8Array)||!record.bytes.length||record.bytes.length>NVS_MAX_PACKAGE)throw new Error('保存した完成例の形式を確認できません。現在の案件と保存版は変更していません。案件ZIPから再登録してください。');
+  try{
+    const data=nvsRestoreEntries(await nvsReadZip(record.bytes));
+    validateProjectImportData(data);const built=buildProjectFromData(data);nvsValidateReferences(built);
+    return {project:built,savedAt:record.savedAt,title:record.title};
+  }catch(error){throw new Error('保存した完成例を読み込めません。現在の案件と保存版は変更していません。案件ZIPから再登録してください。 '+error.message);}
+}
+async function nvsSaveCompletedExample(){
+  if(nvsDemoStoreBusy||state.demoOpening)return false;nvsDemoStoreBusy=true;const owner=project;
+  try{
+    if(!nvsCompletedExampleReady(owner))return false;
+    const title=owner.meta.title||'無題の案件';
+    if(!await confirmModal('完成例として保存',`現在の「${title}」を、このブラウザーで次に開く完成例として保存します。前の保存版は上書きします。通常の案件保存や公開サイトの完成例は変更しません。`,{okLabel:'完成例として保存'}))return false;
+    if(!nvsCompletedExampleReady(owner))return false;
+    const change=state.nvsChange||0,data=nvsClone(serializeProject(owner));
+    validateProjectImportData(data);nvsValidate(data.nvs);nvsValidateReferences(owner);
+    const bytes=nvsBuildPackage(data);
+    // 素材合計に収まっていてもZIPヘッダ分で読込上限を超える場合は、前の保存版を上書きしない。
+    if(bytes.length>NVS_MAX_PACKAGE)throw new Error('完成例の案件ZIPが保存上限512MBを超えています。前の保存版は変更していません。画像を調整してください。');
+    const record={format:'nvs.completed-example.v1',savedAt:new Date().toISOString(),title:String(data.meta?.title||'無題の案件'),bytes};
+    await nvsDemoStoreAccess('write',record,()=>project===owner);
+    const changed=project!==owner||(state.nvsChange||0)!==change;
+    toast(changed?'保存開始時点の内容を完成例として保存しました。その後の編集は再保存してください。':'完成例として保存しました。次の「完成例を見てみる」で開けます。','ok');
+    return true;
+  }catch(error){toast(error.message,'warn');return false;}finally{nvsDemoStoreBusy=false;}
+}
+async function nvsResetCompletedExample(){
+  if(nvsDemoStoreBusy||state.demoOpening)return false;nvsDemoStoreBusy=true;const owner=project;
+  try{
+    if(!await confirmModal('初期完成例へ戻す','このブラウザーに保存した完成例を削除します。次の「完成例を見てみる」は組込みの初期完成例になります。現在編集中の案件はそのままです。必要な保存版は案件ZIPへ保管してください。',{danger:true,okLabel:'初期完成例へ戻す'}))return false;
+    if(project!==owner)return false;
+    await nvsDemoStoreAccess('delete',null,()=>project===owner);
+    toast('次回は初期完成例を開きます。現在の案件は変更していません。','ok');return true;
+  }catch(error){toast(error.message,'warn');return false;}finally{nvsDemoStoreBusy=false;}
+}
+
 // 完成例への置換は共通の作業判定を使い、確認中に切り替わった案件を上書きしない。
 let nvsDemoLoadSequence=0;
-async function nvsOpenCompletedExample(){
-  if(state.demoOpening)return false;
+async function nvsOpenCompletedExample(options={}){
+  if(state.demoOpening||nvsDemoStoreBusy)return false;
   state.demoOpening=true;
   const owner=project;
   try{
     if(!nvsRequireValidPendingInput())return false;
     nvsMiiAssertSettled();nvsMiiAssertPhotosSettled();nvsMiiFlush();
     // 単価・設定費・任意欄だけの編集も置換対象なので、作業判定の種類によらず確認する。
-    if(!await confirmModal('完成例を開く','現在の作業を架空の完成例に置き換えます。必要なデータは先に案件ZIPなどへ保存してください。',{okLabel:'完成例を開く'}))return false;
+    const initial=options.initial===true;
+    if(!await confirmModal('完成例を開く',initial?'現在の作業を組込みの初期完成例に置き換えます。保存済み完成例は残します。必要な作業は先に案件ZIPなどへ保存してください。':'現在の作業を、このブラウザーに保存した完成例（未登録なら初期完成例）に置き換えます。必要な作業は先に案件ZIPなどへ保存してください。',{okLabel:'完成例を開く'}))return false;
     if(project!==owner)return false;
     if(!nvsRequireValidPendingInput())return false;
     nvsMiiAssertSettled();nvsMiiAssertPhotosSettled();nvsMiiFlush();
-    return await loadDemoProject();
+    if(initial)return await loadDemoProject();
+    const change=state.nvsChange||0,sequence=++nvsDemoLoadSequence;
+    const saved=await nvsReadCompletedExample();
+    if(project!==owner||sequence!==nvsDemoLoadSequence||(state.nvsChange||0)!==change){toast('準備中の編集内容を保持しました。完成例はもう一度開いてください。','warn');return false;}
+    if(!saved)return await loadDemoProject();
+    const photos=await nvsPrepareCompletedExampleImages(saved.project);
+    return nvsCommitCompletedExample(saved.project,photos,owner,sequence,change);
   }finally{state.demoOpening=false;}
 }
 
@@ -7658,7 +7742,7 @@ async function nvsPrepareCompletedExampleImages(demo){
   });
   const photos=new Map();
   await Promise.all([
-    ...demo.floors.map(async floor=>{floor.img=await load(floor.imgSrc);}),
+    ...demo.floors.map(async floor=>{floor.img=floor.imgSrc?await load(floor.imgSrc):null;}),
     ...Object.entries(demo.photos||{}).map(async([id,photo])=>{photos.set(id,{img:await load(photo.src),ready:true,src:photo.src});})
   ]);
   return photos;
@@ -7691,7 +7775,7 @@ function nvsCommitCompletedExample(demo,photos,owner,sequence,change){
   nvsMiiSession?.dispose();if(nvsOverlay)nvsClose();
   Object.keys(undoStacks).forEach(key=>delete undoStacks[key]);Object.keys(redoStacks).forEach(key=>delete redoStacks[key]);
   state.pointers.clear();pendingPhotoTarget=null;updateUndoRedoBtns();
-  toast('完成例を開きました。「提案資料」で記入済みの提案と接続図を確認できます。','ok');
+  toast('完成例を開きました。編集後は「保存・引継ぎ」から完成例として保存できます。','ok');
   return true;
 }
 
@@ -8897,9 +8981,34 @@ function nvsImportMii(data){
   n.imports.push({id:nvsId(),date:new Date().toISOString(),kind:'MII',source:nvsClone(data)});nvsMiiSeed(p,data);nvsValidate(n);nvsValidateReferences(p);return serializeProject(p);
 }
 function nvsSnapshot(label){if(!label.trim())throw new Error('版の名前を入力してください');nvsMiiFlush();const n=nvsEnsure();const data=nvsClone(serializeProject(project)),id=nvsId(),date=new Date().toISOString();data.nvs.order.baselineLabel=n.milestones.find(m=>m.id===n.order.baselineId)?.label||n.order.baselineLabel||'';data.nvs.milestones=[];Object.assign(data.nvs,{revisionId:id,parentRevisionId:n.revisionId,savedAt:date});const entry={id,label:label.trim(),date,stage:n.profile.stage,snapshot:data};n.milestones.push(entry);markDirty();return entry;}
+let nvsEntryInitialized=false;
 function nvsInit(){
-  const button=document.createElement('button');button.id='nvsOpen';button.className='pillBtn';button.type='button';button.textContent='提案資料';button.addEventListener('click',()=>nvsOpen());els.btnSave.before(button);els.btnSave.title='案件パッケージを保存（ZIPを直接読込できます）';
-  const hero=document.createElement('button');hero.id='nvsStart';hero.innerHTML=ic('edit')+'<span>提案資料から始める</span>';hero.addEventListener('click',()=>nvsOpen());els.heroLoad.before(hero);
+  // ブラウザー保存で残った表示用DOMだけを起動時に掃除する。現在開いている資料は保持する。
+  if(!nvsEntryInitialized){
+    let removed=false;
+    document.querySelectorAll('.nvsOverlay,.nvsReportOverlay,.nvsMiiOverlay').forEach(el=>{
+      if(el===nvsOverlay||nvsOverlay?.contains(el)||el===nvsMiiSession?.overlay||nvsMiiSession?.overlay?.contains(el)||el._owner)return;
+      el.remove();removed=true;
+    });
+    if(removed&&!nvsOverlay&&!nvsMiiSession){document.body.classList.remove('nvsPrinting');document.body.style.overflow='';document.documentElement.style.overflow='';}
+    nvsEntryInitialized=true;
+  }
+  // 保存済みのボタンを再利用し、過去版の重複IDも一つに戻す。DOM属性を初期化済み判定に使わない。
+  const entry=(id,anchor,setup)=>{
+    const existing=[...document.querySelectorAll('#'+id)],focus=document.activeElement;
+    const isButton=el=>el.tagName==='BUTTON';
+    const button=existing.find(el=>isButton(el)&&(el===focus||el.contains(focus)))||existing.find(isButton)||document.createElement('button');
+    const restoreFocus=existing.some(el=>el===focus||el.contains(focus));
+    existing.forEach(el=>{if(el!==button)el.remove();});
+    button.id=id;button.type='button';button.title='提案資料を開く';button.setAttribute('aria-haspopup','dialog');setup(button);
+    // onclickは毎回置換するので、再初期化・HTML再読込のどちらでも実行は一回。
+    button.onclick=()=>nvsOpen();
+    if(button.nextElementSibling!==anchor)anchor.before(button);
+    if(restoreFocus&&document.activeElement!==button)button.focus({preventScroll:true});
+    return button;
+  };
+  entry('nvsOpen',els.btnSave,button=>{button.className='pillBtn';button.textContent='提案資料';});els.btnSave.title='案件パッケージを保存（ZIPを直接読込できます）';
+  entry('nvsStart',els.heroLoad,hero=>{hero.innerHTML=ic('edit')+'<span>提案資料から始める</span>';});
   els.loadFileInput.accept='.json,.zip,.nvs,application/json,application/zip';els.heroLoad.innerHTML=ic('load')+'<span>保存した案件を開く / ZIP・JSON</span>';
 }
 
@@ -8950,8 +9059,9 @@ function nvsCaseView(){const n=nvsEnsure(),p=n.profile,issues=nvsIssues();const 
     nvsCard('確認が必要なこと',issues.length?`<ul>${issues.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul>`:nvsEmpty('参照や費用の不整合は検出されていません。現地の確認済みを意味するものではありません。'))+
     nvsHandoffView();
 }
-function nvsHandoffView(){const n=nvsEnsure();return nvsCard('保存・引継ぎ',`<p class="nvsHint">ZIPを1つ保存し、「読込」でそのZIPを選ぶだけ。手動の展開は不要です。写真・図面・重要版を含みます。</p><div class="nvsGrid">${nvsField('引継ぎ先','nvs.profile.handoffTo')}${nvsField('引継ぎ事項・残課題','nvs.profile.handoffNote','textarea')}</div><div class="nvsActions">${nvsButton('案件パッケージを保存','save','',true)}${nvsButton('ダウンロード保存','download')}${nvsButton('JSONで保存','json')}${nvsButton('案件を読込','load')}${nvsButton('展開済みフォルダから読込','folder')}${nvsButton('別案件として複製','duplicate')}</div><p class="nvsHint">案件ID: ${escapeHtml(n.projectId)} / 保存版: <span data-nvs-saved-revision>${escapeHtml(n.revisionId||'未保存')}</span><br>端末内の自動保存は復旧用です。保管・引継ぎには案件ファイルを保存してください。</p>`)+nvsMilestoneView();
+function nvsHandoffView(){const n=nvsEnsure();return nvsCard('保存・引継ぎ',`<p class="nvsHint">ZIPを1つ保存し、「読込」でそのZIPを選ぶだけ。手動の展開は不要です。写真・図面・重要版を含みます。</p><div class="nvsGrid">${nvsField('引継ぎ先','nvs.profile.handoffTo')}${nvsField('引継ぎ事項・残課題','nvs.profile.handoffNote','textarea')}</div><div class="nvsActions">${nvsButton('案件パッケージを保存','save','',true)}${nvsButton('ダウンロード保存','download')}${nvsButton('JSONで保存','json')}${nvsButton('案件を読込','load')}${nvsButton('展開済みフォルダから読込','folder')}${nvsButton('別案件として複製','duplicate')}</div><p class="nvsHint">案件ID: ${escapeHtml(n.projectId)} / 保存版: <span data-nvs-saved-revision>${escapeHtml(n.revisionId||'未保存')}</span><br>端末内の自動保存は復旧用です。保管・引継ぎには案件ファイルを保存してください。</p>`)+nvsCompletedExampleCard()+nvsMilestoneView();
 }
+function nvsCompletedExampleCard(){return nvsCard('このブラウザーの完成例',`<p class="nvsHint">今の案件を登録すると、次の「完成例を見てみる」で編集後の図面・写真・提案資料・接続図が開きます。通常の案件保存だけでは完成例は変わりません。</p><div class="nvsActions">${nvsButton('現在の案件を完成例として保存','demo-save','',true)}${nvsButton('保存した完成例を解除','demo-reset')}${nvsButton('初期完成例を開く（保存版は残す）','demo-initial')}</div><p class="nvsHint">保存先はこのブラウザー内です。公開URLとローカルHTML、別の端末・ブラウザーでは共有されません。HTMLの移動・改名後は再登録が必要な場合があります。別の環境では案件ZIP/JSONを読み込み、ここで再登録してください。保存版の解除後は、次回から組込みの初期完成例が開きます。</p>`);}
 // 画面上のC/E番号ではなく既存の個体IDで保存版と比較する。同数の入替を見落とさない。
 function nvsMilestoneAssetChanges(before,after){
   const old=new Map(nvsAssets(before).map(a=>[a.key,a])),now=new Map(nvsAssets(after).map(a=>[a.key,a]));
@@ -9090,6 +9200,9 @@ async function nvsAction(action,arg){if(nvsMiiSession?.host&&!action.startsWith(
     nvsOverlay?.querySelector('.nvsNav [data-nvs-arg="'+nvsView.tab+'"]')?.focus({preventScroll:true});return;
   }
   if(action==='save')return nvsSave();if(action==='download')return nvsSave('zip',true);if(action==='json')return nvsSave('json');
+  if(action==='demo-save')return nvsSaveCompletedExample();
+  if(action==='demo-reset')return nvsResetCompletedExample();
+  if(action==='demo-initial')return nvsOpenCompletedExample({initial:true});
   if(action==='load'){els.loadFileInput.value='';els.loadFileInput.click();return;}
   if(action==='folder'){const input=document.createElement('input');input.type='file';input.multiple=true;input.setAttribute('webkitdirectory','');input.onchange=async()=>{try{const data=await nvsReadFolder(input.files);if(project!==owner)return;await nvsLoadData(data,'案件フォルダ');}catch(e){toast(e.message,'warn');}};input.click();return;}
   if(action==='add'){nvsAdd(arg);return;}
