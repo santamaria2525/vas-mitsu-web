@@ -8792,7 +8792,7 @@ function nvsRefreshDesignReferences(el){
     if(path.endsWith('.assetKeys'))for(const option of select.options){const a=assets.get(option.value);if(a)option.textContent=nvsAssetDisplayName(a)+' / '+a.location+' / '+a.quantity+'台';}
   });
 }
-function nvsDesignView(){const n=nvsEnsure(),scenario=nvsView.scenario,g=n.topology[scenario],assets=nvsAssets(),missingWires=new Map(nvsMissingWireLinks(project,scenario).map(x=>[x.index,x]));return nvsPlotCard()+nvsCard('配置図と接続構成図',`<p class="nvsHint">配置図は施工位置・距離、接続図はシステムのつながりを扱います。台帳の同じ機器を参照できます。</p><div class="nvsActions">${nvsButton('配置図を編集する','plot','',true)}${Object.entries(NVS_SCENARIOS).map(([k,v])=>nvsButton(v+'構成','scenario',k,k===scenario)).join('')}${nvsButton('配線から系統図を作る','plot-review','',true)}${nvsButton('MII形式で編集・出力','mii-design')}${nvsPlotUndo?.owner===project&&nvsPlotUndo.scenario===scenario?nvsButton('直前の生成を取り消す','plot-undo'):''}${nvsButton('別の状態から構成をコピー','copy-graph')}${nvsButton('自動整列','layout')}</div>${nvsPlotStatus(project,scenario)}<div class="nvsGraph">${nvsGraphSvg(project,scenario,true)}</div><p class="nvsHint">ブロックはドラッグで移動できます。接続は下の接続一覧から編集します。</p>`)+nvsSystemView()+
+function nvsDesignView(){const n=nvsEnsure(),scenario=nvsView.scenario,g=n.topology[scenario],assets=nvsAssets(),missingWires=new Map(nvsMissingWireLinks(project,scenario).map(x=>[x.index,x]));return nvsPlotCard()+nvsCard('配置図と接続構成図',`<p class="nvsHint">配置図は施工位置・距離、接続図はシステムのつながりを扱います。台帳の同じ機器を参照できます。</p><div class="nvsActions">${nvsButton('配置図を編集する','plot','',true)}${Object.entries(NVS_SCENARIOS).map(([k,v])=>nvsButton(v+'構成','scenario',k,k===scenario)).join('')}${nvsButton('機器を配置して接続図を編集','mii-design','',true)}${nvsButton('配線から系統図を作る','plot-review')}${nvsPlotUndo?.owner===project&&nvsPlotUndo.scenario===scenario?nvsButton('直前の生成を取り消す','plot-undo'):''}${nvsButton('別の状態から構成をコピー','copy-graph')}${nvsButton('自動整列','layout')}</div>${nvsPlotStatus(project,scenario)}<div class="nvsGraph">${nvsGraphSvg(project,scenario,true)}</div><p class="nvsHint">ブロックはドラッグで移動できます。接続は下の接続一覧から編集します。</p>`)+nvsSystemView()+
     nvsCard('接続ブロック',g.nodes.map((r,i)=>{const p=`nvs.topology.${scenario}.nodes.${i}`;return `<article class="nvsEntry"><div class="nvsGrid">${nvsField('表示名（空欄なら機器名）',p+'.name')}${nvsField('種類',p+'.type','select',NVS_NODE_TYPES)}${nvsField('場所',p+'.location')}${nvsField('台数（台帳未対応時）',p+'.qty','number')}${nvsField('補足',p+'.detail','textarea')}${nvsAssetSelect(p+'.assetKeys')}</div><p class="nvsHint" data-nvs-node-summary="${i}">${escapeHtml(nvsNodeSummary(r))}</p>${nvsButton('ブロックを削除','delete-node',String(i))}</article>`;}).join('')||nvsEmpty('ルーター・スイッチ・録画装置・カメラなどを追加してください。'),nvsButton('ブロックを追加','add-node'))+
     nvsCard('接続一覧',g.links.map((r,i)=>{const p=`nvs.topology.${scenario}.links.${i}`,options=Object.fromEntries(g.nodes.map(x=>[x.id,nvsNodeInfo(x).name]));return `<article class="nvsEntry">${missingWires.has(i)?`<p class="nvsNotice">接続${i+1}: 元の施工配線${missingWires.get(i).missing.length}件が見つかりません。対応を確認してください。</p>`:''}<div class="nvsGrid">${nvsField('接続元',p+'.from','select',options)}${nvsField('接続先',p+'.to','select',options)}${nvsField('接続種類',p+'.kind','select',NVS_LINK_TYPES)}${nvsField('方向',p+'.direction','select',{both:'双方向',forward:'接続元 → 接続先',none:'方向なし'})}${nvsField('接続の説明',p+'.label')}${nvsField('施工配線との対応',p+'.wireKey','select',{'':'未指定',...(r.wireKey&&!project.floors.some(f=>f.wires.some(w=>nvsPlotWireKey(f,w)===r.wireKey))?{[r.wireKey]:'参照先なし（削除済み配線）'}:{}),...Object.fromEntries(project.floors.flatMap(f=>f.wires.map((w,j)=>[f.id+':'+w.id,f.name+' / '+(j+1)+' / '+(project.pricing.wires[w.type]?.label||w.type)])))})}</div>${nvsButton('接続を削除','delete',p)}</article>`;}).join('')||nvsEmpty('ブロックを2つ以上追加してから接続します。'),nvsButton('接続を追加','add-link'))+
     nvsCard('共通機器台帳',assets.filter(a=>a.floor).map(a=>`<div class="nvsAssetRow"><div><strong>${escapeHtml(nvsAssetDisplayName(a))}</strong><p>${escapeHtml(a.location)} / ${escapeHtml(a.source.serialNumber||'シリアル未登録')}</p></div>${nvsButton('配置・納入情報を開く','jump-device',a.key)}</div>`).join('')||nvsEmpty('配置図の機器はここに自動表示されます。'))+nvsExtraAssetsView();
@@ -8890,7 +8890,7 @@ async function nvsAction(action,arg){if(nvsMiiSession?.host&&!action.startsWith(
   if(action==='plot-skip'){nvsPlotSkip();return;}
   if(action==='plot-undo'){nvsPlotUndoApply();return;}
   if(action==='plot-cancel'){nvsPlotDraft=null;nvsRender();return;}
-  if(action==='mii-design'){await nvsOpenMii(project,{scenario:nvsView.scenario});return;}
+  if(action==='mii-design'){await nvsOpenMii(project,{scenario:nvsView.scenario,manual:true});return;}
   if(action==='mii-open'||action==='mii-preview'){await nvsOpenMii(project,{preview:action==='mii-preview'});return;}
   if(action==='close'||action==='plot')return nvsRequestClose();
   if(action==='tab'){
@@ -10255,6 +10255,24 @@ function nvsMiiTopologyQuantitySource(source){
 
 // 提案資料の入力だけを整理する。原版の帳票描画・候補辞書・入力イベントは変えない。
 // 表示用の参照情報だけを作る。自由記述や保存済みの構成詳細には書き込まない。
+function nvsMiiPlacedDevices(p,scenario){
+  if(!NVS_SCENARIOS[scenario])throw new Error('接続図の対象構成を確認してください。');
+  return p.floors.flatMap(f=>f.devices.map(d=>({key:nvsDeviceKey(f,d),floorId:f.id,floor:f.name,
+    label:deviceLabels(f)[d.id]||'機器',model:d.model||'',location:d.location||d.annotation||f.name,
+    type:nvsPlotType(d.type),name:nvsDeviceDisplayName(f,d,p)})));
+}
+function nvsMiiCreatePlacedNode(p,scenario,key,id,topology){
+  const rows=nvsMiiPlacedDevices(p,scenario),matches=rows.filter(row=>row.key===key);
+  if(matches.length!==1)throw new Error('図面の機器が削除・変更されています。一覧を開き直して選んでください。');
+  const nodes=topology?.nodes;if(!Array.isArray(nodes)||typeof id!=='string'||!id||nodes.some(node=>node.id===id))throw new Error('接続ブロックの識別子を確認できません。');
+  if(nodes.length>=100)throw new Error('接続図は最大100ブロックです。');
+  const sourceKey=k=>k.startsWith('asset:')?p.nvs?.assets?.find(a=>'asset:'+a.id===k)?.mappedTo||k:k;
+  const keys=node=>nvsMiiTopologyBinding(p,scenario,node)?.assetKeys||node.assetKeys||[];
+  if(nodes.some(node=>keys(node).some(k=>sourceKey(k)===key)))throw new Error('この機器は接続図に配置済みです。既存のブロックを選択してください。');
+  const row=matches[0],n=nvsEnsure(p);
+  return {id,type:row.type,name:row.name,location:row.floor+' / '+row.location,detail:'',qty:1,
+    _nvsBinding:{projectId:n.projectId,scenario,id,type:row.type,assetKeys:[key],fallbackQty:1}};
+}
 function nvsMiiPlacementModels(p,keys=null){
   const allowed=keys===null?null:new Set(keys);
   return p.floors.flatMap(f=>f.devices.filter(d=>!allowed||allowed.has(nvsDeviceKey(f,d))).map(d=>({
@@ -10339,11 +10357,11 @@ function nvsMiiInstallProposalForm(session){
   const footer=doc.createElement('div');footer.className='nvsProposalFooter';footer.innerHTML='<button type="button" data-proposal-back>前へ</button><span>未入力の項目は、あとから補足できます。</span><button type="button" class="nvsProposalNext" data-proposal-next></button>';
   editor.append(empty,footer);
   const connection=doc.createElement('div');connection.className='nvsProposalConnection';
-  connection.innerHTML='<span data-proposal-connection-note></span><button type="button" data-proposal-connection>配線から接続図を作る</button>';
+  connection.innerHTML='<span data-proposal-connection-note></span><button type="button" data-proposal-connection>機器を配置して接続図を編集</button>';
   doc.getElementById('systemForm')?.querySelector(':scope > h2')?.after(connection);
   connection.querySelector('button').addEventListener('click',()=>{
     if(disposed)return;
-    try{nvsMiiFlush();nvsView.scenario='proposed';nvsPlotReview();}
+    try{win.MII_TEST.nvsOpenManualTopology();}
     catch(error){toast(error.message,'warn');}
   });
   const availableSteps=()=>nvsMiiVisibleProposalSteps(steps,doc);
@@ -10410,14 +10428,17 @@ function nvsMiiInstallProposalForm(session){
       for(const item of originals){const paragraph=doc.createElement('p');paragraph.dataset.sourceKey=item.key;paragraph.textContent=item.label+'\n設置場所: '+item.location+'\n正式型番: '+(item.model||'未入力');originalBody.appendChild(paragraph);}
       originalDetails.dataset.signature=originalSignature;
     }
-    const graph=owner.nvs?.topology?.proposed,hasDevices=devices.length>0;
+    const graph=owner.nvs?.topology?.[session.scenario],hasDevices=devices.length>0;
+    // 構成欄は既存renderAllで作り直されるため、再開ボタンも現在の欄へ戻す。
+    const system=doc.getElementById('systemForm');if(system&&!system.contains(connection))system.querySelector(':scope > h2')?.after(connection);
     const missing=hasDevices&&!graph?.nodes?.length;
     const connectionState=nvsPlotSourceState(graph,owner),changed=hasDevices&&!missing&&['changed','dismissed'].includes(connectionState);
-    connection.classList.toggle('nvsProposalHidden',!missing&&!changed);
+    connection.classList.remove('nvsProposalHidden');
     connection.querySelector('[data-proposal-connection-note]').textContent=missing
-      ?'接続図はまだありません。図面の機器・配線から候補を作り、接続先を確認できます。'
+      ?'配置済み機器をキャンバスへドラッグし、「線をつなぐ」で接続します。図面・見積数量は変わりません。'
       :connectionState==='dismissed'?'図面と接続図に差異があります（今回は反映しない選択済み）。接続図は以前の内容です。'
-      :'図面の機器・配線が変わりました。候補を確認して接続図に反映できます。';
+      :changed?'図面に変更があります。手動の配置・結線を保持しています。機器の参照情報を確認しながら修正できます。'
+      :'配置済み機器から追加し、位置や接続先・線を編集できます。編集は案件へ反映されます。保管前に案件ZIPを保存してください。';
     applyStep();
   }
   function applyStep(){
@@ -10452,6 +10473,166 @@ function nvsMiiInstallProposalForm(session){
   previewButton.addEventListener('click',previewScroll,true);
   decorate();observer.observe(editor,{subtree:true,childList:true});
   return ()=>{disposed=true;observer.disconnect();editor.removeEventListener('change',schedule);previewButton.removeEventListener('click',previewScroll,true);delete win.__nvsProposalShowTarget;session.showFormSection=null;};
+}
+
+// 配置済み機器を既存のMII手動エディタへ渡す。結線・移動・編集・Undoは既存処理を使う。
+function nvsMiiManualSource(source){
+  const autoDefault='topoEasy.v1927Auto = topoEasy.v1927Auto!==false;';
+  if(source.split(autoDefault).length!==2)throw new Error('接続後の自動整形の初期値を確認できません');
+  source=source.replace(autoDefault,'topoEasy.v1927Auto = topoEasy.v1927Auto===true;');
+  const install=()=>{
+    const state={selected:null,drag:null,tap:null,search:'',message:'',suppressClick:false};
+    // 自動整形の初期値だけをOFFにする。利用者がONにした後の選択は開き直しても保持する。
+    const keys=node=>[...new Set([...(Array.isArray(node?._nvsBinding?.assetKeys)?node._nvsBinding.assetKeys:[]),...(Array.isArray(node?.assetKeys)?node.assetKeys:[])])];
+    const placed=()=>{
+      if(typeof window.__nvsMiiPlacedDevices!=='function')throw new Error('配置機器の一覧を準備できません。案件から接続図を開き直してください。');
+      return window.__nvsMiiPlacedDevices();
+    };
+    const used=key=>(project.topology?.nodes||[]).find(node=>keys(node).includes(key));
+    const cancel=(message='配置を取り消しました。接続図は変更していません。')=>{
+      state.selected=null;state.drag=null;state.tap=null;state.message=message;
+      document.querySelector('#topoEasyBoard')?.classList.remove('nvsManualDropReady');
+    };
+    const report=error=>{state.message=error?.message||String(error);updatePalette();};
+    function select(key){
+      if(!placed().some(row=>row.key===key))throw new Error('この機器は配置図から削除されています。一覧を確認してください。');
+      if(used(key))throw new Error('この機器は接続図に配置済みです。');
+      state.drag=null;state.tap=null;state.selected={key,graph:project.topology};state.message='キャンバスの配置位置をタップしてください。';
+      topoEasy.connectMode=false;topoEasy.connectFrom=null;
+      const scroll=document.querySelector('[data-nvs-manual-list]')?.scrollTop||0;
+      if(topoEasy.open)renderEasyTopologyEditor();else updatePalette();
+      const list=document.querySelector('[data-nvs-manual-list]');if(list)list.scrollTop=scroll;
+    }
+    // pointは接続図のワールド座標の左上。画面座標・パン・拡大率の換算はイベント側で行う。
+    function place(key,point){
+      const rows=placed(),row=rows.find(value=>value.key===key);
+      if(!row)throw new Error('この機器は配置図から削除されています。一覧を確認してください。');
+      if(used(key))throw new Error('この機器は接続図に配置済みです。既存のブロックを移動・編集してください。');
+      const graph=project.topology;
+      if(!graph||!Array.isArray(graph.nodes)||!Array.isArray(graph.links))throw new Error('接続図を開き直してください。');
+      if(graph.nodes.length>=100)throw new Error('接続図は最大100ブロックです。既存のブロックを整理してから追加してください。');
+      if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y))throw new Error('配置位置を確認できません。キャンバス上の位置を選び直してください。');
+      const id=topoNewId();
+      if(graph.nodes.some(node=>node.id===id))throw new Error('新しい機器IDを作れませんでした。もう一度配置してください。');
+      if(typeof window.__nvsMiiCreatePlacedNode!=='function')throw new Error('配置機器との対応を準備できません。案件から接続図を開き直してください。');
+      const node=window.__nvsMiiCreatePlacedNode(key,id,graph);
+      if(!node||node.id!==id)throw new Error('配置機器との対応を確認できません。');
+      const geom=topoGeom({...node,x:point.x,y:point.y});node.x=geom.x;node.y=geom.y;topoSnapGrid(node);
+      const before=topoSnapshot(),undo=topoEasy.undo.slice(),selection={selectedNode:topoEasy.selectedNode,selectedNodes:[...(topoEasy.selectedNodes||[])],selectedLink:topoEasy.selectedLink,connectMode:topoEasy.connectMode,connectFrom:topoEasy.connectFrom,panelMode:topoEasy.panelMode};
+      try{
+        topoPushUndo();graph.nodes.push(node);graph.preset='custom';
+        topoEasy.selectedNode=id;topoEasy.selectedNodes=[id];topoEasy.selectedLink=null;topoEasy.connectMode=false;topoEasy.connectFrom=null;topoEasy.panelMode='closed';
+        cancel('追加しました。「線をつなぐ」で機器を順に選べます。');
+        topoEasy.message=row.label+' を配置しました';renderAll();if(topoEasy.open)renderEasyTopologyEditor();
+        return id;
+      }catch(error){
+        project.topology=before;topoEasy.undo=undo;Object.assign(topoEasy,selection);
+        try{renderAll();if(topoEasy.open)renderEasyTopologyEditor();}catch{}
+        throw error;
+      }
+    }
+    function updatePalette(){
+      const palette=document.querySelector('.nvsManualPalette');if(!palette)return;
+      const list=palette.querySelector('[data-nvs-manual-list]'),status=palette.querySelector('[data-nvs-manual-status]'),cancelButton=palette.querySelector('[data-nvs-manual-cancel]');
+      let rows;try{rows=placed();}catch(error){list.innerHTML='';status.textContent=error.message||String(error);cancelButton.hidden=true;return;}
+      const live=new Set(rows.map(row=>row.key)),missing=(project.topology?.nodes||[]).filter(node=>keys(node).some(key=>key.startsWith('device:')&&!live.has(key)));
+      const query=state.search.trim().toLocaleLowerCase(),visible=rows.filter(row=>[row.floor,row.label,row.name,row.model,row.location,row.key].join(' ').toLocaleLowerCase().includes(query));
+      const available=rows.filter(row=>!used(row.key)).length;
+      palette.querySelector('[data-nvs-manual-count]').textContent=available+' / '+rows.length+'台 未配置';
+      const warning=palette.querySelector('[data-nvs-manual-warning]');warning.hidden=!missing.length;
+      warning.textContent=missing.length?'図面にない参照を持つブロックが'+missing.length+'件あります。ブロックと接続は保持しています。対応を確認してから接続図で削除・修正してください。':'';
+      cancelButton.hidden=!state.selected&&!state.drag;
+      status.textContent=state.message||(state.selected?'キャンバスの配置位置をタップしてください。':'機器をドラッグ、または選んでキャンバスをタップ。');
+      list.innerHTML=visible.map(row=>{const existing=used(row.key),selected=state.selected?.key===row.key;return '<button type="button" class="nvsManualDevice'+(selected?' isSelected':'')+'" data-nvs-manual-key="'+esc(row.key)+'" draggable="'+(!existing)+'"'+(existing?' disabled':'')+' aria-pressed="'+selected+'"><strong>'+esc(row.label)+'</strong><span>'+esc(row.floor)+' / '+esc(row.location||'場所未入力')+'</span><span>正式型番: '+esc(row.model||'未入力')+'</span><small>'+esc(row.key)+'</small><b>'+(existing?'配置済み':selected?'配置位置を選択中':'ドラッグして配置')+'</b></button>';}).join('')||'<p class="nvsManualEmpty">'+(rows.length?'一致する機器はありません。検索語を変えてください。':'配線図に機器を配置すると、ここに表示されます。')+'</p>';
+      for(const button of list.querySelectorAll('[data-nvs-manual-key]')){
+        button.addEventListener('click',()=>{
+          if(button.disabled)return;try{select(button.dataset.nvsManualKey);}catch(error){report(error);}
+        });
+        button.addEventListener('dragstart',event=>{
+          if(button.disabled){event.preventDefault();return;}
+          state.selected=null;state.tap=null;state.drag={key:button.dataset.nvsManualKey,graph:project.topology};state.message='キャンバスへドロップして配置します。';
+          event.dataTransfer?.setData('application/x-vas-placed-device',state.drag.key);if(event.dataTransfer)event.dataTransfer.effectAllowed='copy';
+          // ドラッグ元DOMをこの時点では再描画しない。
+          status.textContent=state.message;cancelButton.hidden=false;
+        });
+        button.addEventListener('dragend',()=>{if(state.drag){cancel('配置を取り消しました。接続図は変更していません。');updatePalette();}});
+      }
+    }
+    function placeAtClient(key,clientX,clientY,expectedGraph=project.topology){
+      const board=document.querySelector('#topoEasyBoard');if(!board||!topoEasy.open)throw new Error('接続図を開き直してください。');
+      if(expectedGraph!==project.topology)throw new Error('接続図が切り替わったため配置を中止しました。機器を選び直してください。');
+      const rect=board.getBoundingClientRect();
+      if(!Number.isFinite(clientX)||!Number.isFinite(clientY)||clientX<rect.left||clientX>rect.right||clientY<rect.top||clientY>rect.bottom)throw new Error('キャンバスの内側に配置してください。');
+      const pos=topoBoardPoint({clientX,clientY},board),geom=topoGeom({x:pos.x,y:pos.y});
+      return place(key,{x:pos.x-geom.w/2,y:pos.y-geom.h/2});
+    }
+    function installPalette(){
+      if(!topoEasy.open)return;
+      const body=document.querySelector('#topoEasyBody'),board=body?.querySelector('#topoEasyBoard'),wrap=board?.closest('.topoEasyBoardWrap');if(!body||!board||!wrap)return;
+      let workspace=body.querySelector('.nvsManualWorkspace');
+      if(!workspace){
+        workspace=document.createElement('div');workspace.className='nvsManualWorkspace';
+        const palette=document.createElement('aside');palette.className='nvsManualPalette';palette.setAttribute('aria-label','配線図に配置した機器');
+        palette.innerHTML='<h4>配線図の機器 <small data-nvs-manual-count></small></h4><label class="nvsManualSearch">機器を検索<input type="search" placeholder="階・番号・型番・場所・ID" aria-label="配線図の機器を検索"></label><p data-nvs-manual-status role="status" aria-live="polite"></p><button type="button" data-nvs-manual-cancel hidden>配置を取り消す</button><p data-nvs-manual-warning class="nvsManualWarning" hidden></p><div data-nvs-manual-list></div><p class="nvsManualFoot">接続図で移動・削除しても、配線図の機器と概算は変わりません。</p>';
+        wrap.before(workspace);workspace.append(palette,wrap);
+        const search=palette.querySelector('input');search.value=state.search;search.addEventListener('input',()=>{state.search=search.value;updatePalette();});
+        palette.querySelector('[data-nvs-manual-cancel]').addEventListener('click',()=>{cancel();updatePalette();});
+      }
+      updatePalette();
+      const generic=body.querySelector('.topoAddWrap > summary');if(generic)generic.textContent='＋ 資料専用の機器';
+      const guide=body.querySelector('.v1927Guide');if(guide)guide.innerHTML='<b>接続図を手動で作成</b><span>① 配線図の機器を配置</span><span>→</span><span>②「線をつなぐ」で 元→先</span><span>→</span><span>③ ドラッグ・選択を編集</span>';
+      if(board.dataset.nvsManualBound==='1')return;board.dataset.nvsManualBound='1';
+      board.addEventListener('dragover',event=>{if(!state.drag)return;event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='copy';board.classList.add('nvsManualDropReady');});
+      board.addEventListener('dragleave',event=>{if(!board.contains(event.relatedTarget))board.classList.remove('nvsManualDropReady');});
+      board.addEventListener('drop',event=>{
+        if(!state.drag)return;event.preventDefault();event.stopPropagation();const pending=state.drag;state.drag=null;board.classList.remove('nvsManualDropReady');
+        try{placeAtClient(pending.key,event.clientX,event.clientY,pending.graph);}catch(error){report(error);}
+      });
+      // タッチとクリックの追加は、確定したタップ1回だけで変更する。途中移動・取消ではノードを作らない。
+      board.addEventListener('pointerdown',event=>{
+        if(!state.selected||event.button!==undefined&&event.button!==0)return;event.preventDefault();event.stopImmediatePropagation();
+        if(state.tap&&state.tap.id!==event.pointerId){cancel('複数の指での操作を検出したため配置を取り消しました。');updatePalette();return;}
+        state.tap={id:event.pointerId,x:event.clientX,y:event.clientY,moved:false};board.setPointerCapture?.(event.pointerId);
+      },true);
+      board.addEventListener('pointermove',event=>{if(!state.tap||state.tap.id!==event.pointerId)return;event.preventDefault();event.stopImmediatePropagation();if(Math.abs(event.clientX-state.tap.x)+Math.abs(event.clientY-state.tap.y)>8)state.tap.moved=true;},true);
+      board.addEventListener('pointerup',event=>{
+        if(!state.tap||state.tap.id!==event.pointerId)return;event.preventDefault();event.stopImmediatePropagation();const tap=state.tap,pending=state.selected;state.tap=null;state.suppressClick=true;setTimeout(()=>{state.suppressClick=false;},0);
+        if(board.hasPointerCapture?.(event.pointerId))board.releasePointerCapture?.(event.pointerId);
+        const rect=board.getBoundingClientRect();if(tap.moved||!pending||event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)return;
+        try{placeAtClient(pending.key,event.clientX,event.clientY,pending.graph);}catch(error){cancel('');report(error);}
+      },true);
+      board.addEventListener('pointercancel',event=>{if(!state.tap||state.tap.id!==event.pointerId)return;state.tap=null;event.stopImmediatePropagation();cancel();updatePalette();},true);
+      board.addEventListener('click',event=>{if(!state.suppressClick)return;state.suppressClick=false;event.preventDefault();event.stopImmediatePropagation();},true);
+    }
+    const style=document.createElement('style');style.id='nvs-manual-topology-style';style.textContent=`
+      .nvsManualWorkspace{display:grid;grid-template-columns:248px minmax(0,1fr);gap:8px;flex:1;min-height:0;min-width:0}.nvsManualWorkspace>.topoEasyBoardWrap{min-width:0}.nvsManualPalette{display:flex;flex-direction:column;gap:7px;min-height:0;padding:10px;border:1px solid #c9dbd1;border-radius:10px;background:#f7fbf8;font-size:11px;color:#315541}.nvsManualPalette h4{margin:0;font-size:14px}.nvsManualPalette h4 small{display:block;font-size:10px;font-weight:400;margin-top:4px}.nvsManualSearch{display:block;font-size:10px}.nvsManualSearch input{width:100%;box-sizing:border-box;min-height:34px;margin-top:4px}.nvsManualPalette [data-nvs-manual-status]{font-size:11px;line-height:1.5;margin:0}.nvsManualPalette [data-nvs-manual-list]{display:flex;flex-direction:column;gap:7px;overflow:auto;min-height:0;flex:1;overscroll-behavior:contain}.nvsManualDevice{display:flex!important;flex-direction:column;align-items:flex-start!important;text-align:left!important;white-space:normal!important;gap:4px!important;min-height:104px!important;flex:none;padding:9px!important;border:1px solid #bacec0!important;border-radius:8px!important;background:#fff!important;color:#244c36!important;cursor:grab!important}.nvsManualDevice strong{font-size:12px;line-height:1.4}.nvsManualDevice span,.nvsManualDevice small{font-size:10px;line-height:1.35;overflow-wrap:anywhere;word-break:break-word}.nvsManualDevice small{color:#718276}.nvsManualDevice b{font-size:10px;color:#296d46}.nvsManualDevice:disabled{opacity:.65!important;cursor:default!important;background:#eef3ef!important}.nvsManualDevice.isSelected{outline:2px solid #267a4a;outline-offset:-2px;background:#e9f6ec!important}.nvsManualFoot,.nvsManualWarning{font-size:10px;line-height:1.5;margin:0}.nvsManualWarning{padding:7px;background:#fff2d3;color:#71521d;border-radius:6px}.nvsManualEmpty{font-size:11px;line-height:1.6}.nvsManualDropReady{outline:3px solid #2c9a5d!important;outline-offset:-4px}.nvsManualPalette [hidden]{display:none!important}
+      @media(max-width:760px){.nvsManualWorkspace{grid-template-columns:1fr;grid-template-rows:190px minmax(0,1fr)}.nvsManualPalette{display:grid;grid-template-columns:minmax(120px,180px) minmax(0,1fr);grid-template-rows:auto auto 1fr;gap:5px 8px;padding:7px}.nvsManualPalette h4,.nvsManualSearch,.nvsManualPalette [data-nvs-manual-status]{grid-column:1}.nvsManualPalette [data-nvs-manual-list]{grid-column:2;grid-row:1/5;display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));align-content:start;overflow:auto}.nvsManualPalette .nvsManualDevice{min-height:110px!important}.nvsManualFoot{display:none}.nvsManualPalette [data-nvs-manual-cancel]{grid-column:1}.nvsManualWarning{grid-column:1}.nvsManualPalette h4 small{display:inline;margin-left:4px}}
+    `;document.head.appendChild(style);
+    const render=renderEasyTopologyEditor;renderEasyTopologyEditor=function(){
+      // 別ツールや構成の置換へ、未確定の配置操作を持ち越さない。
+      if(state.drag||state.selected&&(topoEasy.connectMode||state.selected.graph!==project.topology))cancel('');
+      render();installPalette();
+    };
+    const close=closeEasyTopologyEditor;closeEasyTopologyEditor=function(){cancel('');return close();};
+    const reset=window.MII_TEST?.nvsResetTopologyHistory;if(reset)window.MII_TEST.nvsResetTopologyHistory=function(){cancel('');return reset();};
+    document.addEventListener('keydown',event=>{
+      if(!topoEasy.open)return;
+      if(event.key==='Escape'&&(state.selected||state.drag||state.tap)){event.preventDefault();event.stopImmediatePropagation();cancel();updatePalette();}
+    },true);
+    document.addEventListener('visibilitychange',()=>{if(document.hidden){cancel('');if(topoEasy.open)updatePalette();}});
+    document.addEventListener('click',event=>{if(!topoEasy.open||!state.selected||!event.target.closest?.('#topoEasyModal button,#topoEasyModal summary')||event.target.closest?.('.nvsManualPalette,#topoEasyBoard'))return;cancel('');updatePalette();},true);
+    if(window.MII_TEST){
+      window.MII_TEST.nvsOpenManualTopology=()=>{placed();cancel('');openEasyTopologyEditor();};
+      window.MII_TEST.nvsPlaceDevice=place;
+      window.MII_TEST.nvsSelectPlacedDevice=select;
+      window.MII_TEST.nvsPlaceDeviceAtClient=placeAtClient;
+      window.MII_TEST.nvsManualPlacementState=()=>({selected:state.selected?.key||null,drag:state.drag?.key||null,message:state.message});
+      window.MII_TEST.nvsCancelPlacement=()=>{cancel();updatePalette();};
+    }
+  };
+  const start=source.indexOf("(function(){'use strict';"),end=source.indexOf('<'+'/script>',start),close=source.lastIndexOf('})();',end);
+  if(start<0||end<0||close<start)throw new Error('MII手動配置の差込み箇所を確認できません');
+  return source.slice(0,close)+'\n('+install.toString()+')();\n'+source.slice(close);
 }
 
 // MII原版の入力・描画・印刷・編集可能PPTXを隔離フレームで実行する。
@@ -10872,7 +11053,7 @@ function nvsMiiSource(){
     source=source.replaceAll(`(project.${key}||[]).length>=20`,`(project.${key}||[]).length>=1000`);
     source=source.replaceAll(`project.${key}.length>=20`,`project.${key}.length>=1000`);
   }
-  return nvsMiiProposalFormSource(nvsMiiTopologyQuantitySource(nvsMiiImportSource(nvsMiiQuantitySource(nvsMiiDownloadSource(nvsMiiPhotoSource(nvsMiiTopologyNotesSource(nvsMiiConfirmationSource(source))))))));
+  return nvsMiiManualSource(nvsMiiProposalFormSource(nvsMiiTopologyQuantitySource(nvsMiiImportSource(nvsMiiQuantitySource(nvsMiiDownloadSource(nvsMiiPhotoSource(nvsMiiTopologyNotesSource(nvsMiiConfirmationSource(source)))))))));
 }
 // 帳票内の固定チェックと入力検査の結果を区別する。原版の描画・出力は変更しない。
 function nvsMiiReadiness(api){
@@ -10952,7 +11133,7 @@ async function nvsOpenMii(source=project,options={}){
   if(embedded){overlay.querySelector('[data-nvs-action="mii-close"]').remove();overlay.querySelector('[data-nvs-action="mii-save"]')?.remove();}
   const readiness=document.createElement('div');readiness.className='nvsNotice nvsMiiCheck';readiness.dataset.miiReadiness='pending';
   readiness.style.cssText='padding:8px 20px;background:#f8fbf8;color:#536b5c;font-size:12px';
-  readiness.innerHTML='<details data-mii-check-details><summary style="cursor:pointer;font-weight:600;min-height:24px;line-height:24px">提出前の確認を準備中…</summary><div class="nvsActions" style="padding:8px 0"><span role="status" aria-live="polite">入力チェックを準備中…</span><button type="button" class="nvsBtn" data-nvs-action="mii-issues" hidden>確認候補を見る</button></div><p style="margin:4px 0 8px">プレビューのチェック表示は現地確認の完了を示しません。</p></details><p data-mii-topology-guide role="status" hidden>このままではPowerPointを出力できません。図面の機器・配線から接続候補を確認してください。 <button type="button" class="nvsBtn" data-nvs-action="mii-topology">接続図を作る</button></p><p data-mii-wire-notice role="status" hidden></p><p data-mii-sync role="status">入力フォームを準備中…</p>';
+  readiness.innerHTML='<details data-mii-check-details><summary style="cursor:pointer;font-weight:600;min-height:24px;line-height:24px">提出前の確認を準備中…</summary><div class="nvsActions" style="padding:8px 0"><span role="status" aria-live="polite">入力チェックを準備中…</span><button type="button" class="nvsBtn" data-nvs-action="mii-issues" hidden>確認候補を見る</button></div><p style="margin:4px 0 8px">プレビューのチェック表示は現地確認の完了を示しません。</p></details><p data-mii-topology-guide role="status" hidden>このままではPowerPointを出力できません。配置済み機器を置き、「線をつなぐ」で接続してください。 <button type="button" class="nvsBtn" data-nvs-action="mii-topology">接続図を作る</button></p><p data-mii-wire-notice role="status" hidden></p><p data-mii-sync role="status">入力フォームを準備中…</p>';
   overlay.insertBefore(readiness,frame);
   const readinessText=readiness.querySelector('span'),issuesButton=readiness.querySelector('button');
   const scenarioSelect=overlay.querySelector('[data-mii-scenario]');scenarioSelect.disabled=true;
@@ -11010,10 +11191,7 @@ async function nvsOpenMii(source=project,options={}){
     if(b.dataset.nvsAction==='mii-topology'){
       if(readonly||source!==project||!refreshReadiness().topologyRequired)return;
       nvsMiiAssertSettled(session);nvsMiiAssertPhotosSettled(session);session.flush();
-      const collision=nvsPlotDuplicateWireKey(source);if(collision)throw new Error('保存データの別々の配線が同じ識別子になっています。誤接続を防ぐため接続図への反映を中止しました。案件データを保持して配線IDを確認してください。');
-      const targetScenario=session.scenario;if(!embedded)session.close({render:false,restoreFocus:false});
-      nvsView.scenario=targetScenario;if(!nvsOverlay)nvsOpen('design');nvsPlotReview();
-      nvsOverlay?.querySelector('[data-nvs-action="plot-apply"]')?.focus({preventScroll:true});return;
+      frame.contentWindow.MII_TEST.nvsOpenManualTopology();return;
     }
     if(b.dataset.nvsAction==='mii-issues'){
       if(!session.ready||refreshReadiness().state!=='draft')return;
@@ -11035,6 +11213,9 @@ async function nvsOpenMii(source=project,options={}){
     win.__nvsMiiEquipmentQuantity=id=>id?nvsMiiEquipment(source).find(row=>row.reportKey===id)?.quantity??null:undefined;
     win.__nvsMiiTopologyQuantity=node=>{const binding=nvsMiiTopologyBinding(source,session.scenario,node);if(!binding)return undefined;const info=nvsNodeInfo({...node,assetKeys:binding.assetKeys},source);return info.linked.length?info.qty:undefined;};
     win.__nvsMiiNodePlacementModels=node=>nvsMiiNodePlacementModels(source,session.scenario,node);
+    const assertManual=()=>{if(session.closed||!session.ready||session.suspended||nvsMiiSession!==session||(!readonly&&project!==source))throw new Error('編集画面が切り替わっています。現在の接続図を開き直してください。');};
+    win.__nvsMiiPlacedDevices=()=>{assertManual();return nvsMiiPlacedDevices(source,session.scenario);};
+    win.__nvsMiiCreatePlacedNode=(key,id,topology)=>{assertManual();return nvsMiiCreatePlacedNode(source,session.scenario,key,id,topology);};
     win.__nvsMiiAssertTopologyQuantity=()=>nvsMiiAssertTopologyQuantities(source,session.scenario);
     api.setProject(nvsMiiProject(source,session.scenario).data);last=api.getProject();outputStamp=nvsMiiOutputStamp(source);
     const n=nvsEnsure(source);n.mii={...n.mii,schemaVersion:1,project:nvsClone(last),scenario:session.scenario,excludedEquipment:n.mii?.excludedEquipment||[]};n.mii.baseline=nvsMiiProjection(source,session.scenario);
@@ -11069,6 +11250,7 @@ async function nvsOpenMii(source=project,options={}){
     if(!session.suspended)poll=setInterval(safeFlush,900);session.ready=true;session.cleanupImport=nvsMiiInstallImport(session,{readonly});nvsMiiInstallDownload(session,options.sourceVersion);session.cleanupPrint=nvsMiiInstallPrint(session,options.sourceVersion);scenarioSelect.disabled=false;session.cleanupForm=nvsMiiInstallProposalForm(session);session.cleanupToolbar=nvsMiiInstallToolbar(session);frame.style.visibility='';refreshReadiness();if(!readonly)markDirty();
     showMessage(readonly?'保存版の作業用コピー（現在の案件は変更しません）':'案件の情報と連動 · 写真・編集内容も案件ZIPに保存されます');
     if(options.preview)doc.getElementById('showPreview').click();
+    if(options.manual)api.nvsOpenManualTopology();
     if(options.pptx)doc.getElementById('exportPptx').click();
     return session;
   }catch(error){failed=true;session.dispose();throw error;}
