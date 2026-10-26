@@ -122,6 +122,9 @@ svg{ display:block; width:100%; height:100%; }
 .bigBtn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
 .bigBtn.primary svg{ color:#fff; }
 .bigBtn.primary:hover{ filter:brightness(1.08); }
+.bigBtn.wireDelete{color:var(--danger);border-color:rgba(244,63,94,.4)}
+.bigBtn.wireDelete svg{color:currentColor}
+.bigBtn.wireDelete:disabled{opacity:.45;cursor:not-allowed}
 
 .floorRow{
   display:flex; align-items:center; gap:8px; padding:9px 10px; min-height:40px; background:var(--ink-800);
@@ -3871,6 +3874,7 @@ function trayWireHtml(){
     <div class="traySection">
       <div class="trayLabel">配線</div>
       ${wireCards}
+      <button type="button" class="bigBtn wireDelete" data-action="clearFloorWires" ${floor.wires.length?'':'disabled'}>${ic('trash')}<span>この階の配線を一括削除<br><small>${escapeHtml(floor.name)} ／ 確定済み ${floor.wires.length}本</small></span></button>
     </div>
     <div class="traySection">
       <div class="trayLabel">区間長ラベル</div>
@@ -4071,6 +4075,7 @@ function initTrayEvents(){
     else if(act==='startScale') setMode('scale', null);
     else if(act==='pickDeviceTool') setMode(ui.mode==='place'&&ui.tool===b.dataset.type?'select':'place', b.dataset.type);
     else if(act==='pickWireTool') setMode(ui.mode==='wire'&&ui.tool===b.dataset.type?'select':'wire', b.dataset.type);
+    else if(act==='clearFloorWires') void clearCurrentFloorWires();
     else if(act==='pickRiserTool') setMode(ui.mode==='riser'&&ui.tool===b.dataset.type?'select':'riser', b.dataset.type);
     else if(act==='pickWallTool') setMode(ui.mode==='wall'?'select':'wall', null);
     else if(act==='openMoneyDrawer') openDrawer();
@@ -4654,6 +4659,31 @@ function deleteSelected(){
   if(idx>=0) arr.splice(idx,1);
   ui.sel = null;
   refreshAll();
+}
+
+// 一括削除も既存の階別履歴へ1回だけ積む。確認中の案件・階・配線変更は採用しない。
+let clearingFloorWires=false;
+async function clearCurrentFloorWires(){
+  if(clearingFloorWires)return false;
+  const owner=project,floor=currentFloor();
+  if(!floor||!floor.wires.length){toast('この階には削除する配線がありません。','info');return false;}
+  const drawingBusy=()=>!!(state.dragInfo||(ui.drawing&&((ui.drawing.pts||[]).length||(ui.drawing.redoPts||[]).length)));
+  if(drawingBusy()){toast('作図・移動中です。確定または取消しをしてから、配線を一括削除してください。','warn');return false;}
+  const wires=floor.wires,before=JSON.stringify(wires),name=floor.name,count=wires.length;
+  clearingFloorWires=true;
+  try{
+    const accepted=await confirmModal('この階の配線を一括削除',`対象:「${name}」の確定済み配線 ${count}本。機器・背景図面・縮尺・写真・壁・立上げ・他の階は残します。接続図の手編集も保持します。削除後は配線費を再計算し、Undoでまとめて元に戻せます。`,{danger:true,okLabel:`配線 ${count}本を削除`});
+    if(!accepted)return false;
+    if(project!==owner||currentFloor()!==floor||!owner.floors.includes(floor)||floor.name!==name||floor.wires!==wires||JSON.stringify(wires)!==before||drawingBusy()){
+      toast('確認中に対象の階・配線または作図状態が変わりました。内容を確認してやり直してください。','warn');return false;
+    }
+    pushHistory();
+    floor.wires=[];
+    if(ui.sel?.kind==='wire')ui.sel=null;
+    refreshAll();
+    toast(`「${name}」の配線 ${count}本を削除しました。Undoで戻せます。`,'ok');
+    return true;
+  }finally{clearingFloorWires=false;}
 }
 function duplicateSelected(){
   if(!ui.sel || !['device','wire','wall','riser'].includes(ui.sel.kind)) return;
@@ -7551,12 +7581,11 @@ function nvsSeedDemoProposal(p,{roles,wires}){
     poeLocation:'1F機器室・2F管理室',lan:'専用VLAN新設',serverLocation:'1F 機器室・ラック中段',cloud:'使用しない',
     viewerPC:'使用しない',monitor:'使用しない',ups:'使用しない',ntp:'録画サーバをNTP参照',
     notes:'架空の計画例。ラック内2接続・階間幹線の長さは未計上。録画容量・帯域・給電・経路は実案件で確認。'});
-  const positions={RT01:[40,40],NVR01:[370,40],SW01:[700,40],CAM01:[40,240],CAM02:[370,240],CAM03:[700,240],CAM04:[1030,240],SW02:[700,440],AP01:[1030,440],CAM05:[40,640],CAM06:[370,640],CAM07:[700,640]};
   const ids={},graph={preset:'custom',nodes:[],links:[]};
   for(const [role,type] of Object.entries(expected)){
     const {floor,device}=roles[role],id=nvsId();ids[role]=id;
     graph.nodes.push({id,type:nvsMiiPlacementDisplay(working,floor,device).type,name:role,location:device.location,
-      detail:device.model+'（架空機種）',qty:1,assetKeys:[nvsDeviceKey(floor,device)],x:positions[role][0],y:positions[role][1]});
+      detail:device.model+'（架空機種）',qty:1,assetKeys:[nvsDeviceKey(floor,device)]});
   }
   for(const spec of linkSpecs){
     const refs=spec.parts.map(role=>nvsPlotWireKey(wires[role].floor,wires[role].wire));
@@ -7567,6 +7596,8 @@ function nvsSeedDemoProposal(p,{roles,wires}){
     graph.links.push({id:nvsId(),from:ids[spec.from],to:ids[spec.to],kind:'lan',label:spec.label,direction:'none',route:'auto',wireKey:'',wireKeys:[],
       detail:'架空の計画接続。図面には配線を描いていません。経路・長さは別途確認し、配線長・大概算には追加計上していません。'});
   }
+  // 構成に明示された接続と種別を使い、通常の「種類別に整列」と同じ配置を用意する。
+  nvsTopologyColumnLayout(graph,node=>nvsMiiPlacementModels(working,node.assetKeys));
   n.topology.proposed=graph;
   nvsSyncBasic(working);
   const areaNotes={CAM01:['正面入口への出入り','入口と受付の動線を記録'],CAM02:['受付での受け渡し','受付カウンター周辺を記録'],CAM03:['商談室の出入り','出入口を中心に記録'],CAM04:['通用口の出入り','雨掛かり・夜間の映りを確認'],CAM05:['執務室の出入口','画面や資料の映り込みを確認'],CAM06:['会議室の出入り','出入口の確認範囲を調整'],CAM07:['階段ホールの動線','昇降口の確認範囲を調整']};
@@ -10425,7 +10456,8 @@ function nvsMiiPlacementDisplay(p,f,d){
   const category=Object.hasOwn(categories,d.type)?categories[d.type]:'other',frameColor=({camera:'#2563EB',hub:'#0F766E',router:'#B45309',ap:'#7C3AED',recorder:'#BE185D',other:'#64748B'})[category];
   const shortLabel=deviceLabels(f)[d.id]||'機器',sameName=p.floors.filter(row=>row.name===f.name).length>1;
   return {type,sourceType:String(d.type||''),iconType,typeLabel,shortLabel,category,frameColor,
-    floorDisplay:(f.name||'名称未設定の階')+(sameName?'（階'+(p.floors.indexOf(f)+1)+'）':'')};
+    // 長い同名階でも末尾省略で識別番号が消えないよう、表示だけ先頭に付ける。
+    floorDisplay:(sameName?'階'+(p.floors.indexOf(f)+1)+'｜':'')+(f.name||'名称未設定の階')};
 }
 function nvsMiiPlacedDevices(p,scenario){
   if(!NVS_SCENARIOS[scenario])throw new Error('接続図の対象構成を確認してください。');
@@ -10647,6 +10679,99 @@ function nvsMiiInstallProposalForm(session){
   return ()=>{disposed=true;observer.disconnect();editor.removeEventListener('change',schedule);previewButton.removeEventListener('click',previewScroll,true);delete win.__nvsProposalShowTarget;session.showFormSection=null;};
 }
 
+// 初期配置と利用者が明示した全体整列だけを、左からルーター・HUB・カメラの列へ揃える。
+// 接続・種類・機器IDには触れず、名前から種類や接続先を推測しない。
+function nvsTopologyColumnLayout(graph,models=()=>[]){
+  const nodes=graph?.nodes||[],links=graph?.links||[],margin=40,xStep=350,yStep=132;
+  const fallback={router:'router',switch:'hub',lan:'hub',camera:'camera',server:'recorder',storage:'recorder'};
+  const rows=new Map(nodes.map((node,index)=>{
+    const source=models(node)||[],categories=[...new Set(source.map(row=>row.category||'other'))];
+    const category=source.length?(categories.length===1?categories[0]:'other'):(fallback[node.type]||'other');
+    return [node.id,{node,index,category,floor:source.length?String(source[0].floorDisplay||source[0].floor||source[0].floorId||''):''}];
+  }));
+  const compare=(a,b)=>a.floor.localeCompare(b.floor,'ja',{numeric:true})||String(a.node.name||a.node.id).localeCompare(String(b.node.name||b.node.id),'ja',{numeric:true})||a.index-b.index;
+  const hubs=[...rows.values()].filter(row=>row.category==='hub').sort(compare),hubIndex=new Map(hubs.map((row,i)=>[row.node.id,i]));
+  const adjacency=new Map(nodes.map(node=>[node.id,[]]));
+  for(const link of links)if(adjacency.has(link.from)&&adjacency.has(link.to)){adjacency.get(link.from).push(link.to);adjacency.get(link.to).push(link.from);}
+  function connectedHub(row){
+    // 実際に存在する接続だけを辿る。近い座標や似た名前から接続を作らない。
+    let frontier=[row.node.id];const seen=new Set(frontier);
+    while(frontier.length){const found=[],next=[];for(const id of frontier)for(const other of adjacency.get(id)||[]){if(seen.has(other))continue;seen.add(other);if(hubIndex.has(other))found.push(rows.get(other));else if(rows.get(other)?.category!=='camera')next.push(other);}
+      if(found.length){found.sort((a,b)=>Number(b.floor===row.floor)-Number(a.floor===row.floor)||hubIndex.get(a.node.id)-hubIndex.get(b.node.id));return found[0].node.id;}frontier=next;
+    }return null;
+  }
+  const groups=hubs.map(row=>({hub:row,cameras:[],aux:[]})),groupById=new Map(groups.map(group=>[group.hub.node.id,group]));
+  const loose={hub:null,cameras:[],aux:[]};
+  for(const row of rows.values())if(!['router','hub'].includes(row.category)){
+    const group=groupById.get(connectedHub(row))||loose;(row.category==='camera'?group.cameras:group.aux).push(row);
+  }
+  if(loose.cameras.length||loose.aux.length)groups.push(loose);
+  let cameraColumns=1;
+  for(const group of groups){group.cameras.sort(compare);group.aux.sort(compare);const count=group.cameras.length,maxRows=Math.max(3,Math.min(8,Math.ceil(Math.sqrt(count||1))));group.columns=Math.max(1,Math.ceil(count/maxRows));group.rows=Math.max(1,Math.ceil(count/group.columns),group.aux.length);cameraColumns=Math.max(cameraColumns,group.columns);}
+  const positions=new Map();const put=(row,col,y)=>positions.set(row.node.id,{x:margin+col*xStep,y:Math.round(y),col:col+1,row:1+Math.round((y-margin)/yStep)});
+  let y=margin;
+  for(const group of groups){
+    const cameraRows=Math.max(1,Math.ceil(group.cameras.length/group.columns));
+    group.cameras.forEach((row,i)=>put(row,2+Math.floor(i/cameraRows),y+(i%cameraRows)*yStep));
+    group.aux.forEach((row,i)=>put(row,2+cameraColumns,y+i*yStep));
+    if(group.hub)put(group.hub,1,y+(group.rows-1)*yStep/2);
+    y+=group.rows*yStep+yStep/2;
+  }
+  const routers=[...rows.values()].filter(row=>row.category==='router').sort(compare),routerYs=[];
+  for(const row of routers){
+    const related=(adjacency.get(row.node.id)||[]).filter(id=>hubIndex.has(id)).map(id=>positions.get(id)?.y).filter(Number.isFinite);
+    let target=related.length?related.reduce((sum,value)=>sum+value,0)/related.length:margin;
+    while(routerYs.some(other=>Math.abs(other-target)<yStep))target+=yStep;
+    routerYs.push(target);put(row,0,target);
+  }
+  let moved=0;for(const node of nodes){const pos=positions.get(node.id);if(!pos)continue;if(node.x!==pos.x||node.y!==pos.y)moved++;Object.assign(node,pos);}
+  return {moved,columns:2+cameraColumns+(groups.some(group=>group.aux.length)?1:0),rows:Math.max(0,...nodes.map(node=>node.row||1))};
+}
+
+function nvsMiiLayoutSource(source){
+  // 種類追加の初期位置だけに種類を渡す。D&D/タップの指定座標は既存処理を維持する。
+  const add='p=topoFirstFree(),name=topoTypeLabel(type)';
+  if(!source.includes(add))throw new Error('MII機器追加の初期配置を確認できません');
+  source=source.split(add).join('p=topoFirstFree(type),name=topoTypeLabel(type)');
+  const install=layout=>{
+    const models=node=>{try{return window.__nvsMiiNodePlacementModels?.(node)||[];}catch{return [];}};
+    const category=type=>({router:0,switch:1,lan:1,camera:2})[type]??3;
+    function firstFree(type='other',graph=project.topology){
+      const col=category(type),x=40+col*350,nodes=graph?.nodes||[];
+      for(let row=0;row<=nodes.length;row++){const y=40+row*132;if(!nodes.some(node=>{const g=topoGeom(node);return x<g.x+g.w+12&&x+282+12>g.x&&y<g.y+g.h+12&&y+100+12>g.y;}))return{x,y,col:col+1,row:row+1};}
+      return{x,y:40+(nodes.length+1)*132,col:col+1,row:nodes.length+2};
+    }
+    topoFirstFree=firstFree;
+    const legacy=legacyTopologyFromSystem;legacyTopologyFromSystem=function(...args){const graph=legacy(...args);layout(graph);return graph;};
+    const preset=topologyPresetApplyStyle;topologyPresetApplyStyle=function(...args){const graph=preset(...args);layout(graph);return graph;};
+    const normalize=normalizeTopology;
+    normalizeTopology=function(raw,system){
+      const result=normalize(raw,system),unplaced=node=>node&&node.x===undefined&&node.y===undefined&&node.col===undefined&&node.row===undefined;
+      const missing=new Set((raw?.nodes||[]).map((node,index)=>unplaced(node)?result.nodes[index]?.id:null).filter(Boolean));
+      if(missing.size&&missing.size===result.nodes.length)layout(result,models);
+      else for(const node of result.nodes)if(missing.has(node.id))Object.assign(node,firstFree(node.type,{nodes:result.nodes.filter(other=>other.id!==node.id)}));
+      return result;
+    };
+    function arrange(){
+      if(!(project.topology?.nodes||[]).length||topoEasy.v1927Busy)return false;
+      topoPushUndo();const info=layout(project.topology,models);project.topology.preset='custom';
+      // 手で選んだ経路・線種・端点は残す。座標が変わった線の描画だけを再計算する。
+      topoEasy.message='ルーター → HUB → カメラの列へ整列しました';
+      renderAll(false);if(topoEasy.open)renderEasyTopologyEditor();renderPreview();renderStatus();return info;
+    }
+    const auto=v1927AutoFormat;
+    v1927AutoFormat=function(options={}){return options.recordUndo===false?auto(options):arrange();};
+    topoAlignPositionsOnly=arrange;topoAutoLayout=arrange;
+    function controls(){const button=document.querySelector('#v1927AutoFormat');if(button){button.textContent='種類別に整列';button.title='全体を左からルーター・HUB・カメラへ整列します。元の配置へ戻すにはUndo。';button.onclick=arrange;}}
+    const installControls=v1927Install;v1927Install=function(...args){const value=installControls(...args);controls();return value;};
+    const render=renderEasyTopologyEditor;renderEasyTopologyEditor=function(...args){const value=render(...args);if(topoEasy.open)controls();return value;};
+    if(window.MII_TEST){window.MII_TEST.nvsArrangeColumns=arrange;window.MII_TEST.nvsColumnInitial=type=>firstFree(type);window.MII_TEST.nvsColumnLayout=graph=>layout(graph,models);}
+  };
+  const start=source.indexOf("(function(){'use strict';"),end=source.indexOf('<'+'/script>',start),close=source.lastIndexOf('})();',end);
+  if(start<0||end<0||close<start)throw new Error('MII列配置の差込み箇所を確認できません');
+  return source.slice(0,close)+'\n('+install.toString()+')('+nvsTopologyColumnLayout.toString()+');\n'+source.slice(close);
+}
+
 // 配置済み機器を既存のMII手動エディタへ渡す。結線・移動・編集・Undoは既存処理を使う。
 function nvsMiiManualSource(source){
   const autoDefault='topoEasy.v1927Auto = topoEasy.v1927Auto!==false;';
@@ -10837,7 +10962,7 @@ function nvsMiiDisplaySource(source){
       const kinds=[...new Set(rows.map(row=>(row.iconType||'other')+'|'+(row.typeLabel||'その他')))];
       const iconType=kinds.length>1?'other':rows.length?(rows[0].iconType||'other'):node.type;
       const typeLabel=kinds.length>1?'複数種類':rows.length?(rows[0].typeLabel||'その他'):topoPaletteLabel(node.type);
-      const categories=[...new Set(rows.map(row=>row.category||'other'))],generic={camera:'camera',switch:'hub',router:'router',server:'recorder'};
+      const categories=[...new Set(rows.map(row=>row.category||'other'))],generic={camera:'camera',switch:'hub',lan:'hub',router:'router',server:'recorder'};
       const category=categories.length>1?'other':rows.length?categories[0]:(generic[node.type]||'other');
       const frameColor=({camera:'#2563EB',hub:'#0F766E',router:'#B45309',ap:'#7C3AED',recorder:'#BE185D',other:'#64748B'})[category]||'#64748B';
       const title=[typeLabel+' / '+short+(floors.length?' / '+floors.join('・'):''),'接続図ID: '+id,
@@ -10863,18 +10988,21 @@ function nvsMiiDisplaySource(source){
       const qty=card.querySelector('.tnQty');if(qty)qty.textContent='×'+info.qty;
     };
     const style=document.createElement('style');style.id='nvs-compact-node-style';style.textContent=`
-      #topoEasyBoard .nvsCompactNode{overflow:hidden!important;padding:0!important;border:3px solid var(--nvsCategoryColor,#64748B)!important;background:#fff!important}
+      /* 原版の中央寄せgridを解除する。絶対位置の子にgrid-rowが残ると、潰れた中央の行がtopの基準になり下端で切れる。 */
+      #topoEasyBoard .nvsCompactNode{display:block!important;grid-template:none!important;align-content:normal!important;box-sizing:border-box!important;overflow:hidden!important;padding:0!important;border:3px solid var(--nvsCategoryColor,#64748B)!important;background:#fff!important;color:#0F172A!important}
+      #topoEasyBoard .nvsCompactNode>div,#topoEasyBoard .nvsCompactNode>span,#topoEasyBoard .nvsCompactNode>button{grid-area:auto!important;align-self:auto!important;justify-self:auto!important;box-sizing:border-box!important}
       #topoEasyBoard .nvsCompactNode.selected,#topoEasyBoard .nvsCompactNode.multiSelected{border-color:var(--nvsCategoryColor,#64748B)!important;box-shadow:0 0 0 2px #fff,0 0 0 5px #1E293B!important;background:#fff!important}
       #topoEasyBoard .nvsCompactNode.connectSource{border-color:var(--nvsCategoryColor,#64748B)!important;outline:2px dashed #1E293B!important;outline-offset:4px!important}
-      #topoEasyBoard .nvsCompactNode .tnIcon{position:absolute!important;left:12px!important;top:18px!important;width:64px!important;height:64px!important;margin:0!important;background:transparent!important;border:0!important;border-radius:0!important}
-      #topoEasyBoard .nvsCompactNode .tnIcon svg{display:block!important;width:64px!important;height:64px!important}
-      #topoEasyBoard .nvsCompactNode .tnType{position:absolute!important;display:block!important;left:12px!important;top:83px!important;width:64px!important;height:auto!important;right:auto!important;bottom:auto!important;margin:0!important;padding:0!important;text-align:center!important;white-space:nowrap!important;font-size:9px!important;line-height:1.2!important;color:#4c695a!important;background:transparent!important}
-      #topoEasyBoard .nvsCompactNode .tnName{position:absolute!important;left:88px!important;top:24px!important;right:28px!important;bottom:auto!important;width:auto!important;height:auto!important;margin:0!important;padding:0!important;font-size:25px!important;font-weight:900!important;line-height:1.15!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-      #topoEasyBoard .nvsCompactNode .tnLoc{position:absolute!important;left:89px!important;top:58px!important;right:18px!important;bottom:auto!important;width:auto!important;height:auto!important;margin:0!important;padding:0!important;font-size:13px!important;line-height:1.35!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-      #topoEasyBoard .nvsCompactNode .tnQty{position:absolute!important;top:4px!important;right:28px!important;left:auto!important;bottom:auto!important;display:block!important;min-width:24px!important;width:auto!important;height:auto!important;padding:2px 5px!important;font-size:12px!important;line-height:1.2!important;border-radius:5px!important;background:#e9f5ed!important;color:#23613c!important;border:1px solid #b9d8c4!important;box-shadow:none!important}
+      #topoEasyBoard .nvsCompactNode .tnIcon{position:absolute!important;display:flex!important;align-items:center!important;justify-content:center!important;left:12px!important;top:14px!important;right:auto!important;bottom:auto!important;width:56px!important;height:56px!important;margin:0!important;padding:0!important;transform:none!important;background:transparent!important;border:0!important;border-radius:0!important}
+      #topoEasyBoard .nvsCompactNode .tnIcon svg{position:static!important;inset:auto!important;display:block!important;width:56px!important;height:56px!important;transform:none!important}
+      #topoEasyBoard .nvsCompactNode .tnType{position:absolute!important;display:block!important;left:8px!important;top:74px!important;width:64px!important;height:14px!important;right:auto!important;bottom:auto!important;margin:0!important;padding:0!important;text-align:center!important;white-space:nowrap!important;font-size:10px!important;line-height:14px!important;color:#334155!important;background:transparent!important}
+      #topoEasyBoard .nvsCompactNode .tnName{position:absolute!important;display:block!important;-webkit-line-clamp:unset!important;-webkit-box-orient:initial!important;left:82px!important;top:22px!important;right:28px!important;bottom:auto!important;width:auto!important;height:30px!important;margin:0!important;padding:0!important;font-size:25px!important;font-weight:900!important;line-height:30px!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;color:#0F172A!important}
+      #topoEasyBoard .nvsCompactNode .tnLoc{position:absolute!important;display:block!important;-webkit-line-clamp:unset!important;-webkit-box-orient:initial!important;left:83px!important;top:56px!important;right:16px!important;bottom:auto!important;width:auto!important;height:20px!important;margin:0!important;padding:0!important;font-size:14px!important;line-height:20px!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;color:#334155!important}
+      #topoEasyBoard .nvsCompactNode .tnQty{position:absolute!important;top:2px!important;right:28px!important;left:auto!important;bottom:auto!important;display:block!important;min-width:24px!important;width:auto!important;height:18px!important;padding:1px 4px!important;font-size:12px!important;line-height:14px!important;border-radius:5px!important;background:#e9f5ed!important;color:#23613c!important;border:1px solid #b9d8c4!important;box-shadow:none!important}
       #topoEasyBoard .nvsCompactNode.multiSelected .tnIcon{margin-left:0!important}
       #topoEasyBoard .nvsCompactNode.multiSelected::after,#topoEasyBoard .nvsCompactNode.connectSource::after{font-size:9px!important;padding:2px 5px!important;height:auto!important;line-height:1.2!important;bottom:2px!important;right:4px!important;left:auto!important}
-      #topoEasyBoard .nvsCompactNode .v1916SelOrder{width:27px!important;height:20px!important;font-size:9px!important;line-height:16px!important;left:3px!important;top:2px!important;border-radius:6px!important}
+      #topoEasyBoard .nvsCompactNode .v1916SelOrder{width:34px!important;height:18px!important;font-size:9px!important;line-height:14px!important;left:82px!important;top:2px!important;border-radius:6px!important}
+      #topoEasyBoard .nvsCompactNode.v1918JustAdded::before{left:122px!important;top:2px!important;bottom:auto!important;height:18px!important;padding:0 4px!important;font-size:9px!important;line-height:18px!important;border-radius:4px!important}
     `;document.head.appendChild(style);
     if(window.MII_TEST)window.MII_TEST.nvsNodeDisplayInfo=id=>{const node=typeof id==='string'?topoNodeById(id):id;return node?nodeInfo(node):null;};
   };
@@ -11419,7 +11547,7 @@ function nvsMiiSource(){
     source=source.replaceAll(`(project.${key}||[]).length>=20`,`(project.${key}||[]).length>=1000`);
     source=source.replaceAll(`project.${key}.length>=20`,`project.${key}.length>=1000`);
   }
-  return nvsMiiFocusSource(nvsMiiDisplaySource(nvsMiiManualSource(nvsMiiProposalFormSource(nvsMiiTopologyQuantitySource(nvsMiiImportSource(nvsMiiQuantitySource(nvsMiiDownloadSource(nvsMiiPhotoSource(nvsMiiTopologyNotesSource(nvsMiiConfirmationSource(source)))))))))));
+  return nvsMiiFocusSource(nvsMiiDisplaySource(nvsMiiLayoutSource(nvsMiiManualSource(nvsMiiProposalFormSource(nvsMiiTopologyQuantitySource(nvsMiiImportSource(nvsMiiQuantitySource(nvsMiiDownloadSource(nvsMiiPhotoSource(nvsMiiTopologyNotesSource(nvsMiiConfirmationSource(source))))))))))));
 }
 // 帳票内の固定チェックと入力検査の結果を区別する。原版の描画・出力は変更しない。
 function nvsMiiReadiness(api){
