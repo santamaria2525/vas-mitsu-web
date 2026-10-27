@@ -2104,7 +2104,7 @@ function confirmModal(title, message, opts){
       if(returnFocus?.isConnected&&typeof returnFocus.focus==='function')returnFocus.focus();
       resolve(value);
     };
-    const onKey=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();finish(false);}else trapNotesFocus(e,els.modalBox);};
+    const onKey=e=>{if(e.isComposing||e.keyCode===229)return;if(e.key==='Escape'){e.preventDefault();e.stopPropagation();finish(false);}else trapNotesFocus(e,els.modalBox);};
     simpleModalCancel=()=>finish(false);
     els.modalBox.innerHTML = `
       <h3 id="confirmTitle">${escapeHtml(title)}</h3>
@@ -4067,7 +4067,7 @@ function initTrayEvents(){
       exportCsv().catch(err=>{ console.error('CSV出力に失敗しました', err); toast('CSV出力に失敗しました: '+(err&&err.message||err), 'warn'); });
     }
     else if(act==='saveFromTray') saveProjectFile();
-    else if(act==='loadFromTray'){ els.loadFileInput.value=''; els.loadFileInput.click(); }
+    else if(act==='loadFromTray'){ vasPickProjectFile(); }
     else if(act==='resetFromTray'){
       confirmModal('全リセット', '案件データと自動保存をすべて削除し、新規プロジェクトに戻します。この操作は取り消せません。', { danger:true, okLabel:'リセット' }).then(ok=>{
         if(!ok) return;
@@ -4254,8 +4254,9 @@ async function pickImage(){
   els.fileInput.value='';els.fileInput.click();
 }
 function onFileChosen(){
-  const file=els.fileInput.files[0],target=pendingFloorImageTarget||beginFloorImageImport();
+  const file=els.fileInput.files[0],target=pendingFloorImageTarget;
   pendingFloorImageTarget=null;
+  if(!target)return false;
   return importFloorFile(file,target);
 }
 async function importFloorFile(file,target){
@@ -4885,7 +4886,7 @@ function initTopbar(){
   els.btnHelp.innerHTML = `${ic('help')}<span class="lbl">ヘルプ</span>`;
   els.logoMark.innerHTML = ic('logo');
   els.btnSave.addEventListener('click', saveProjectFile);
-  els.btnLoad.addEventListener('click', ()=>{ els.loadFileInput.value=''; els.loadFileInput.click(); });
+  els.btnLoad.addEventListener('click', vasPickProjectFile);
   els.loadFileInput.addEventListener('change', onLoadFileChosen);
   els.btnSettings.addEventListener('click', openSettingsModal);
   els.btnHelp.addEventListener('click', openHelpModal);
@@ -4960,7 +4961,7 @@ function initEmptyStateButtons(){
   els.heroPick.addEventListener('click', pickImage);
   els.heroCam.addEventListener('click', captureImage);
   els.heroSample.addEventListener('click', useSampleImage);
-  els.heroLoad.addEventListener('click',()=>{els.loadFileInput.value='';els.loadFileInput.click();});
+  els.heroLoad.addEventListener('click',vasPickProjectFile);
   els.heroDemo.addEventListener('click', async()=>{
     try{ await vasOpenCompletedExample(); }
     catch(error){toast('完成例の読込に失敗しました: '+error.message,'warn');}
@@ -5212,7 +5213,11 @@ function applyLoadedProject(built, discardPending){
   els.autosaveBanner.classList.remove('show');updateUndoRedoBtns();markDirty();
   return true;
 }
-function onLoadFileChosen(){ return loadProjectFile(els.loadFileInput.files[0]); }
+function onLoadFileChosen(){
+  const owner=vasProjectPickerOwner;vasProjectPickerOwner=null;
+  if(!owner||project!==owner)return false;
+  return loadProjectFile(els.loadFileInput.files[0]);
+}
 async function loadProjectFile(file){
   if(!file||state.projectImportBusy)return false;
   state.projectImportBusy=true;const owner=project;
@@ -5477,7 +5482,7 @@ function buildExportableHtml(pricingData){
   clone.querySelector('#canvasWrap')?.removeAttribute('data-drop-hint');
   clone.querySelector('body')?.classList.remove('nvsPrinting');
   // 配布用HTMLへ、案件の納入情報やハンドブックプレビューを焼き込まない。
-  clone.querySelectorAll('.hbOverlay,.projectNotesOverlay,.vasConnectionOverlay,#vasConnectionOpen,#vasExampleMenu,#vasExampleSave').forEach(el=>el.remove());
+  clone.querySelectorAll('.hbOverlay,.projectNotesOverlay,.vasConnectionOverlay,#vasConnectionOpen,#vasExampleMenu,#vasExampleSave,#vasNewProject').forEach(el=>el.remove());
   ['tray','floorTabs','workspaceInfo','workflowHint','saveStatus','quoteNo','totalMain','totalTax','breakdownChips','checkBadge','moneyDrawer','checkPopover'].forEach(id=>{
     const el=clone.querySelector('#'+id);if(el){el.innerHTML='';el.classList.remove('open');}
   });
@@ -5846,10 +5851,13 @@ function quoteFileBase(owner=project){
   return 'VAS見積書_'+(owner.meta?.title||'無題').replace(/[\\/:*?"<>|]/g,'_')+(owner.priceMode==='useOnly'?'_ユースのみ':'');
 }
 async function printQuote(){
+  if(state.quotePrintBusy)return;state.quotePrintBusy=true;
   const owner=project;
+  try{
   const ok = await confirmIfOutputHasErrors();
   if(!ok) return;
   await prepareOutputImages(owner,false);
+  if(project!==owner)throw new Error('案件が切り替わったため印刷を中止しました。');
   const totals = NEXT_PURE.calcTotals(project);
   const printRows = buildQuotePrintRows(totals);
   const chunks = chunkPrintRows(printRows, QUOTE_TABLE_FIXED_ROWS);
@@ -5864,6 +5872,7 @@ async function printQuote(){
   els.printRoot.innerHTML = html;
   stampPageNumbers(els.printRoot);
   await waitForPrintImages(els.printRoot);
+  if(project!==owner){els.printRoot.innerHTML='';throw new Error('案件が切り替わったため印刷を中止しました。');}
   // 復元はafterprintを主とし、matchMedia('print')の変化も補助に使う(印刷に時間がかかる環境向け)。
   const previousTitle=document.title;
   document.title=quoteFileBase(owner);
@@ -5871,7 +5880,7 @@ async function printQuote(){
   let mql = null, mqlHandler = null;
   const restore = ()=>{
     if(restored) return;
-    restored = true;
+    restored = true;state.quotePrintActive=false;state.quotePrintBusy=false;
     els.printRoot.innerHTML = '';
     document.title=previousTitle;
     scheduleRender();
@@ -5885,7 +5894,9 @@ async function printQuote(){
     if(mql.addEventListener) mql.addEventListener('change', mqlHandler); else if(mql.addListener) mql.addListener(mqlHandler);
   }
   // 印刷ダイアログを開いている間は時間経過で紙面を消さない。
+  state.quotePrintActive=true;
   try{window.print();}catch(error){restore();throw error;}
+  }finally{if(!state.quotePrintActive)state.quotePrintBusy=false;}
 }
 
 /* =========================================================================
@@ -8731,7 +8742,6 @@ function vasOpenConnection(){
   const available=Object.keys(diagrams.graphs).filter(key=>key===active||diagrams.graphs[key].nodes.length||diagrams.graphs[key].links.length);
   const context=key=>({graph:vasClone(diagrams.graphs[key]),devices:vasConnectionDevices(owner),title:(owner.meta.title||'接続図')+' / '+(labels[key]||key)});
   vasConnectionSession=vasConnectionOpen({...context(active),activeScenario:active,scenarios:available.map(key=>({key,label:labels[key]||key})),isOwnerCurrent:()=>project===owner,
-    onSaveExample:vasIsCompletedExample(owner)?()=>vasSaveExampleFromEditor(owner):undefined,
     onCommit:(graph,key=active)=>{
       if(project!==owner)throw new Error('案件が切り替わりました。接続図を開き直してください。');
       const next=vasClone(diagrams);next.active=key;next.graphs[key]=vasClone(graph);
@@ -8751,47 +8761,96 @@ function vasInit(){
   existing.filter(el=>el!==button).forEach(el=>el.remove());button.id='vasConnectionOpen';button.type='button';button.className='pillBtn';button.textContent='接続図';button.title='配置した機器から接続図を作成';button.setAttribute('aria-haspopup','dialog');
   button.onclick=()=>{try{vasOpenConnection();}catch(error){toast(error.message,'warn');}};
   if(button.nextElementSibling!==els.btnSave)els.btnSave.before(button);
-  for(const [id,label,handler]of[['vasExampleMenu','完成例',vasOpenExampleMenu],['vasExampleSave','完成例を保存',vasSaveCompletedExample]]){
-    const matches=[...document.querySelectorAll('#'+id)],entry=matches[0]||document.createElement('button');matches.slice(1).forEach(el=>el.remove());
-    entry.id=id;entry.type='button';entry.className='pillBtn';entry.textContent=label;entry.setAttribute('aria-haspopup','dialog');
-    entry.onclick=()=>Promise.resolve(handler()).catch(error=>toast(error.message,'warn'));button.before(entry);
-  }
+  document.querySelectorAll('#vasExampleMenu,#vasExampleSave').forEach(el=>el.remove());
+  const entries=[...document.querySelectorAll('#vasNewProject')],entry=entries[0]||document.createElement('button');entries.slice(1).forEach(el=>el.remove());
+  entry.id='vasNewProject';entry.type='button';entry.className='pillBtn';entry.textContent='新しい案件';entry.title='現在の案件を保存するか確認して、図面を開く初期画面へ';entry.setAttribute('aria-haspopup','dialog');
+  entry.onclick=()=>vasStartNewProject();button.before(entry);
   vasRefreshExampleControls();
   els.btnSave.title='案件ZIPを保存（接続図・画像・旧版の互換データを含む）';
   els.loadFileInput.accept='.json,.zip,.nvs,application/json,application/zip';
   els.heroLoad.innerHTML=ic('load')+'<span>保存した案件を開く / ZIP・JSON</span>';
 }
 function vasRefreshExampleControls(){
-  const busy=!!(vasDemoStoreBusy||state.demoOpening),save=document.getElementById('vasExampleSave'),menu=document.getElementById('vasExampleMenu');
-  if(menu){menu.disabled=busy;menu.title='保存した完成例を開く・現在の案件を完成例として保存・初期例へ戻す';}
-  if(save){save.hidden=!vasIsCompletedExample();save.style.display=save.hidden?'none':'';save.disabled=busy;save.textContent='完成例を保存';save.title='図面・機器・写真・接続図を含む案件全体を、このブラウザーの完成例として保存';}
+  const button=document.getElementById('vasNewProject');if(button)button.disabled=!!state.newProjectBusy;
 }
-function vasChooseExampleAction(){
+// 新規案件の切替は保存・描画・永続化を確かめてから確定する。
+let vasProjectPickerOwner=null;
+function vasPickProjectFile(){
+  if(state.newProjectBusy)return false;
+  vasProjectPickerOwner=project;els.loadFileInput.value='';els.loadFileInput.click();return true;
+}
+function vasPrepareProjectSwitch(){
+  if(!vasRequireValidPendingInput())return false;
+  vasAssertConnectionSettled();
+  if(state.dragInfo||state.pointers.size||ui.drawing?.pts?.length||ui.scaleTemp)throw new Error('作図・ドラッグ・縮尺設定を完了するか取消してから、新しい案件を開いてください。');
+  return true;
+}
+function vasChooseNewProjectAction(){
   closeModal();const returnFocus=document.activeElement;
   return new Promise(resolve=>{
     let settled=false;
     const finish=value=>{if(settled)return;settled=true;document.removeEventListener('keydown',onKey,true);simpleModalCancel=null;closeModal();if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true});resolve(value);};
     const onKey=event=>{if(event.isComposing||event.keyCode===229)return;if(event.key==='Escape'){event.preventDefault();event.stopPropagation();finish(null);}else trapNotesFocus(event,els.modalBox);};
     simpleModalCancel=()=>finish(null);
-    els.modalBox.innerHTML='<h3 id="vasExampleMenuTitle">完成例を編集・保存</h3><p id="vasExampleMenuDescription">図面・機器・配線・写真・接続図を案件全体で保存します。次の「完成例を見てみる」で保存版を開けます。</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" data-vas-example-action="open">保存した完成例を開く</button><button type="button" class="primary" data-vas-example-action="save">'+(vasIsCompletedExample()?'この編集を完成例として保存':'現在の案件を完成例として保存')+'</button><button type="button" data-vas-example-action="initial">初期完成例を開く</button><button type="button" data-vas-example-action="reset">保存した完成例を解除</button></div><p class="hint">このブラウザー内だけの保存です。通常の案件保存では上書きしません。公開URL・ローカルHTML・別ブラウザー・端末は自動共有されません。移動や引継ぎには案件ZIP/JSONを保管して再登録してください。初期完成例を開いても保存版は残ります。</p><div class="modalBtns"><button type="button" id="vasExampleMenuClose">閉じる</button></div>';
-    els.modalBox.setAttribute('role','dialog');els.modalBox.setAttribute('aria-modal','true');els.modalBox.setAttribute('aria-labelledby','vasExampleMenuTitle');els.modalBox.setAttribute('aria-describedby','vasExampleMenuDescription');
-    els.modalBox.querySelectorAll('[data-vas-example-action]').forEach(button=>button.onclick=()=>finish(button.dataset.vasExampleAction));
-    els.modalBox.querySelector('#vasExampleMenuClose').onclick=()=>finish(null);
-    document.addEventListener('keydown',onKey,true);els.modalOverlay.classList.add('show');
-    els.modalBox.querySelector(vasIsCompletedExample()?'[data-vas-example-action="save"]':'[data-vas-example-action="open"]').focus();
+    els.modalBox.innerHTML='<section id="vasNewProjectChoice"><h3 id="vasNewProjectTitle">新しい案件を始める</h3><p id="vasNewProjectDescription">現在の案件を保存しますか？ 新しい案件は「まずは図面を開く」から始まります。保存せず進むと、現在の編集内容には戻れません。</p><div class="modalBtns"><button type="button" data-vas-new-project="cancel">キャンセル</button><button type="button" data-vas-new-project="discard">保存せず新しい案件</button><button type="button" class="primary" data-vas-new-project="save">保存して新しい案件</button></div><p class="hint">ダウンロード方式では保存先を確認してから切り替えます。設定・保存した完成例は残ります。復元待ちの前回データがある場合は保持し、その確認まで新案件の自動保存を保留します。</p></section>';
+    els.modalBox.setAttribute('role','dialog');els.modalBox.setAttribute('aria-modal','true');els.modalBox.setAttribute('aria-labelledby','vasNewProjectTitle');els.modalBox.setAttribute('aria-describedby','vasNewProjectDescription');
+    els.modalBox.querySelectorAll('[data-vas-new-project]').forEach(button=>button.onclick=()=>finish(button.dataset.vasNewProject==='cancel'?null:button.dataset.vasNewProject));
+    document.addEventListener('keydown',onKey,true);els.modalOverlay.classList.add('show');els.modalBox.querySelector('[data-vas-new-project="cancel"]').focus();
   });
 }
-async function vasOpenExampleMenu(){
-  if(vasDemoStoreBusy||state.demoOpening||!vasRequireValidPendingInput())return false;
-  vasAssertConnectionSettled();const owner=project,action=await vasChooseExampleAction();if(!action)return false;
-  if(project!==owner){toast('案件が切り替わりました。完成例の操作を開き直してください。','warn');return false;}
-  if(action==='save')return vasSaveCompletedExample();if(action==='reset')return vasResetCompletedExample();
-  return vasOpenCompletedExample({initial:action==='initial'});
+async function vasStartNewProject(){
+  if(state.newProjectBusy)return false;
+  if(state.fileSaving||state.projectImportBusy||state.demoOpening||vasDemoStoreBusy||state.outputBusy||state.quotePrintBusy||handbookOpeningBusy||handbookPrintBusy||handbookPrintSession||handbookPptxBusy){toast('保存・読込・出力が完了してから新しい案件を開いてください。','warn');return false;}
+  const zIndex=els.modalOverlay.style.zIndex;state.newProjectBusy=true;vasRefreshExampleControls();
+  try{
+    if(!vasPrepareProjectSwitch())return false;
+    const owner=project,change=state.fileChange||0;
+    if(vasConnectionSession)els.modalOverlay.style.zIndex='21000';
+    const action=await vasChooseNewProjectAction();if(!action)return false;
+    if(project!==owner||(state.fileChange||0)!==change)throw new Error('確認中の変更を保持しました。新しい案件はもう一度開いてください。');
+    if(!vasPrepareProjectSwitch())return false;
+    if(action==='save'){
+      const saved=await vasSave('zip',false,{details:true});if(!saved)return false;
+      if(project!==owner||(state.fileChange||0)!==change)throw new Error('保存中に加えた編集を保持しました。新しい案件はもう一度開いてください。');
+      if(saved.autosaved===false&&!saved.pendingAutosave)throw new Error('端末への保存に失敗したため、現在の案件を保持しました。書き出した案件ファイルを確認してください。');
+      if(saved.mode==='download'&&!await confirmModal('ダウンロードを確認','ダウンロードを開始しましたが、ブラウザーからディスクへの保存完了は確認できません。保存先に案件ZIPがあることを確認してから進んでください。未保存・取消の場合はキャンセルして現在の作業を残してください。',{okLabel:'保存を確認して新しい案件'}))return false;
+    }
+    if(project!==owner||(state.fileChange||0)!==change)throw new Error('確認中の変更を保持しました。新しい案件はもう一度開いてください。');
+    if(!vasPrepareProjectSwitch())return false;
+    return vasCommitFreshProject(owner,change);
+  }catch(error){toast(error.message,'warn');return false;}
+  finally{state.newProjectBusy=false;els.modalOverlay.style.zIndex=zIndex;vasRefreshExampleControls();}
 }
-async function vasSaveExampleFromEditor(owner){
-  if(project!==owner)throw new Error('案件が切り替わったため完成例の保存を中止しました。');
-  const previous=els.modalOverlay.style.zIndex;els.modalOverlay.style.zIndex='21000';
-  try{return await vasSaveCompletedExample();}finally{els.modalOverlay.style.zIndex=previous;}
+function vasCommitFreshProject(owner,change){
+  if(project!==owner||(state.fileChange||0)!==change)return false;
+  const fresh=makeFreshProject();validateProjectImportData(serializeProject(fresh));
+  const previous={project,ui:{...ui,view:{...ui.view}},state:{...state},title:els.titleField.value};
+  const priorTimer=state.autosaveTimer;
+  clearTimeout(state.autosaveTimer);state.autosaveTimer=null;
+  try{
+    project=fresh;
+    Object.assign(ui,{floorIdx:0,mode:'select',tool:null,sel:null,view:{x:0,y:0,zoom:1},trayStep:null,scaleTemp:null,drawing:null,lastPointerWorld:{x:0,y:0},wireSnapMode:'free',wireShiftDown:false,deviceQuery:''});
+    state.dragInfo=null;state.lastTotal=null;state.lastTotals=null;state.lastIssues=null;els.titleField.value='';
+    refreshAll();fitToScreen();
+    clearTimeout(state.autosaveTimer);state.autosaveTimer=null;
+    // 復元待ちの別案件は上書きしない。通常は新しい空案件の保存成功を切替の確定点にする。
+    if(!previous.state.pendingAutosave)localStorage.setItem(AUTOSAVE_KEY,JSON.stringify(serializeProject(fresh)));
+  }catch(error){
+    clearTimeout(state.autosaveTimer);state.autosaveTimer=null;project=previous.project;Object.assign(ui,previous.ui);Object.assign(state,previous.state);state.autosaveTimer=null;els.titleField.value=previous.title;
+    try{refreshAll();}catch(restoreError){console.warn('元の案件の再表示に失敗しました',restoreError);}
+    clearTimeout(state.autosaveTimer);Object.assign(state,previous.state);state.autosaveTimer=priorTimer&&!state.pendingAutosave?setTimeout(doAutosave,1500):null;
+    throw new Error('新しい案件を開始できませんでした。現在の案件・履歴を保持しました。 '+error.message);
+  }
+  vasCloseConnection();closeProjectNotes();closeDrawer();
+  document.querySelectorAll('.hbOverlay').forEach(overlay=>closeHandbookPreview(overlay));
+  Object.keys(undoStacks).forEach(key=>delete undoStacks[key]);Object.keys(redoStacks).forEach(key=>delete redoStacks[key]);
+  photoImgCache.clear();state.pointers.clear();pendingPhotoTarget=null;pendingFloorImageTarget=null;vasProjectPickerOwner=null;
+  for(const input of [els.fileInput,els.loadFileInput,els.photoInput])if(input)input.value='';
+  vasCompletedExampleContext=null;++vasDemoLoadSequence;vasComposingInputs.clear();
+  state.fileChange=0;state.fileDirty=false;state.pendingAutosaveDirty=false;state.autosaveWarned=false;state.dragInfo=null;
+  els.cv.style.cursor='';els.autosaveBanner.classList.remove('show');updateUndoRedoBtns();
+  setSaveStatus(state.pendingAutosave?'pending':'saved',state.pendingAutosave?'保存データを確認':'新しい案件',state.pendingAutosave?'前回の保存データを保持しています。復元・破棄を選ぶまで自動保存を保留します。':'空の案件をこのブラウザーに保存しました。図面を開いて始められます。');
+  els.heroPick.focus({preventScroll:true});toast('新しい案件を開きました。まずは図面を開いてください。','ok');return true;
 }
 async function vasWriteFile(filename,blob){
   if(window.showSaveFilePicker){try{
@@ -8800,7 +8859,7 @@ async function vasWriteFile(filename,blob){
   }catch(error){if(error.name==='AbortError')return false;throw new Error('保存できませんでした。「設定 → 案件ファイル・完成例の保存」のダウンロード保存も利用できます。 '+error.message);}}
   downloadBlob(filename,blob);return 'download';
 }
-async function vasSave(format='zip',forceDownload=false){
+async function vasSave(format='zip',forceDownload=false,options={}){
   if(state.fileSaving||!vasRequireValidPendingInput())return false;
   try{vasAssertConnectionSettled();}catch(error){toast(error.message,'warn');return false;}
   state.fileSaving=true;const owner=project,change=state.fileChange||0;
@@ -8812,8 +8871,9 @@ async function vasSave(format='zip',forceDownload=false){
     const blob=format==='json'?new Blob([JSON.stringify(data,null,2)],{type:'application/json'}):new Blob([vasBuildPackage(data)],{type:'application/zip'});
     if(blob.size>VAS_MAX_PACKAGE)throw new Error('案件ファイルが512MBを超えています。画像サイズを調整してください。');
     const result=forceDownload?(downloadBlob(filename,blob),'download'):await vasWriteFile(filename,blob);if(!result)return false;
-    if(project===owner){owner.fileMeta=data.fileMeta;doAutosave();const changed=(state.fileChange||0)!==change;state.fileDirty=changed;setSaveStatus(changed?'dirty':'saved',changed?'保存後に変更あり':result==='download'?'ファイルを書出済':'ファイルに保存済',result==='download'?'ダウンロード先を確認してください。保存後の編集は再保存が必要です。':'案件パッケージへ保存しました');}
-    toast(result==='download'?'案件ファイルのダウンロードを開始しました':'案件ファイルを保存しました','ok');return true;
+    let autosaved=null;const pendingAutosave=!!state.pendingAutosave;
+    if(project===owner){owner.fileMeta=data.fileMeta;autosaved=doAutosave();const changed=(state.fileChange||0)!==change;state.fileDirty=changed;setSaveStatus(changed?'dirty':'saved',changed?'保存後に変更あり':result==='download'?'ファイルを書出済':'ファイルに保存済',result==='download'?'ダウンロード先を確認してください。保存後の編集は再保存が必要です。':'案件パッケージへ保存しました');}
+    toast(result==='download'?'案件ファイルのダウンロードを開始しました':'案件ファイルを保存しました','ok');return options.details?{mode:result,owner,change,autosaved,pendingAutosave}:true;
   }catch(error){toast(error.message,'warn');return false;}finally{state.fileSaving=false;}
 }
 function vasImportStandaloneDiagram(raw){
@@ -8833,10 +8893,10 @@ async function vasLoadData(raw,label='案件ファイル',owner=project){
   if(!applyLoadedProject(built,true))return false;vasCloseConnection();state.fileDirty=false;
   toast(data.nvs||data.legacyMii?'旧案件を読み込みました。接続図は「接続図」から編集でき、旧提案情報は保持しています。':'案件を読み込みました。ZIPの手動展開は不要です','ok');return true;
 }
-function vasSaveOptionsHtml(){return `<details style="margin-top:14px"><summary>案件ファイル・完成例の保存</summary><p class="hint">未適用の設定入力は対象外です。図面・写真・接続図を現在の案件から保存します。</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" data-vas-save="zip">ZIPをダウンロード</button><button type="button" data-vas-save="json">JSONをダウンロード</button><button type="button" data-vas-example="save">完成例として保存</button><button type="button" data-vas-example="initial">初期完成例を開く</button><button type="button" data-vas-example="reset">保存した完成例を解除</button></div><p class="hint">完成例はこのブラウザー内だけに保存します。通常の案件保存では上書きしません。公開URLとローカルHTML・別ブラウザー・端末は自動共有されません。HTMLの移動・改名後は再登録が必要な場合があります。引継ぎは案件ZIP/JSONを読み込み、完成例として再登録してください。初期完成例を開いても保存版は残ります。</p></details>`;}
+function vasSaveOptionsHtml(){return `<details style="margin-top:14px"><summary>案件ファイル・完成例の保存</summary><p class="hint">未適用の設定入力は対象外です。図面・写真・接続図を現在の案件から保存します。</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" data-vas-save="zip">ZIPをダウンロード</button><button type="button" data-vas-save="json">JSONをダウンロード</button><button type="button" data-vas-example="open">保存した完成例を開く</button><button type="button" data-vas-example="save">完成例として保存</button><button type="button" data-vas-example="initial">初期完成例を開く</button><button type="button" data-vas-example="reset">保存した完成例を解除</button></div><p class="hint">完成例はこのブラウザー内だけに保存します。通常の案件保存では上書きしません。公開URLとローカルHTML・別ブラウザー・端末は自動共有されません。HTMLの移動・改名後は再登録が必要な場合があります。引継ぎは案件ZIP/JSONを読み込み、完成例として再登録してください。初期完成例を開いても保存版は残ります。</p></details>`;}
 function vasBindSaveOptions(){
   els.modalBox.querySelectorAll('[data-vas-save]').forEach(button=>button.onclick=()=>{const format=button.dataset.vasSave;closeSettingsModal();vasSave(format,true);});
-  els.modalBox.querySelectorAll('[data-vas-example]').forEach(button=>button.onclick=async()=>{const action=button.dataset.vasExample;closeSettingsModal();try{if(action==='save')await vasSaveCompletedExample();else if(action==='reset')await vasResetCompletedExample();else await vasOpenCompletedExample({initial:true});}catch(error){toast(error.message,'warn');}});
+  els.modalBox.querySelectorAll('[data-vas-example]').forEach(button=>button.onclick=async()=>{const action=button.dataset.vasExample;closeSettingsModal();try{if(action==='save')await vasSaveCompletedExample();else if(action==='reset')await vasResetCompletedExample();else await vasOpenCompletedExample({initial:action==='initial'});}catch(error){toast(error.message,'warn');}});
 }
 
 // SOURCE: completed-example.js
@@ -8925,7 +8985,7 @@ function vasMarkCompletedExample(owner,{savedAt=null,source='initial'}={}){
 }
 function vasDemoStorageError(error){
   if(error?.name==='QuotaExceededError')return new Error('完成例の保存容量が足りません。前の保存版は残っています。案件ZIPも保存してください。');
-  return new Error('このブラウザーの完成例保存を利用できません。前の保存版は変更していません。案件ZIPを保管して再登録してください。組込み例はメインの「完成例」から「初期完成例を開く」で確認できます。');
+  return new Error('このブラウザーの完成例保存を利用できません。前の保存版は変更していません。案件ZIPを保管して再登録してください。組込み例は「設定 → 案件ファイル・完成例の保存 → 初期完成例を開く」で確認できます。');
 }
 function vasDemoStoreAccess(mode,record,guard=()=>true){
   return new Promise((resolve,reject)=>{
@@ -9074,7 +9134,7 @@ function vasCommitCompletedExample(demo,photos,owner,sequence,change,context={so
   Object.keys(undoStacks).forEach(key=>delete undoStacks[key]);Object.keys(redoStacks).forEach(key=>delete redoStacks[key]);
   state.pointers.clear();pendingPhotoTarget=null;updateUndoRedoBtns();
   vasMarkCompletedExample(demo,context);
-  toast('完成例を開きました。図面・接続図を編集し、「完成例を保存」で次回に引き継げます。','ok');
+  toast('完成例を開きました。編集後は「設定 → 案件ファイル・完成例の保存 → 完成例として保存」で次回に引き継げます。','ok');
   return true;
 }
 
@@ -9285,9 +9345,9 @@ function vasCommitCompletedExample(demo,photos,owner,sequence,change,context={so
   function button(action,label,title=''){return '<button type="button" data-vce-action="'+action+'"'+(title?' title="'+escape(title)+'"':'')+'>'+label+'</button>';}
   function open(options={}){if(session){session.overlay.focus();return API;}if((options.isOwnerCurrent&&options.isOwnerCurrent()===false)||(options.isCurrent&&options.isCurrent()===false))throw Error('案件が切り替わったため接続図を開けません。');if(!geometry())throw Error('接続図の描画機能を準備できません。');style();const graph=normalizeGraph(options.graph),view=graph.editorView||{},overlay=document.createElement('section');overlay.className='vceOverlay vasConnectionOverlay';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','接続図');overlay.tabIndex=-1;
     const scenarios=options.scenarios||[];
-    overlay.innerHTML='<header class="vceHead"><h2>接続図</h2><span class="vceTitle"></span>'+(scenarios.length>1?'<select data-vce-scenario aria-label="接続図の構成">'+scenarios.map(value=>'<option value="'+escape(value.key||value.id)+'">'+escape(value.label||value.name||value.key||value.id)+'</option>').join('')+'</select>':'')+(typeof options.onSaveExample==='function'?button('saveExample','完成例を保存','図面・機器・写真・接続図を含む案件全体を、このブラウザーの完成例として保存します'):'')+'<button type="button" class="vceDone" data-vce-action="close">完了・配線図へ</button></header><nav class="vceTools" aria-label="接続図の操作">'+button('select','選択・移動')+button('connect','結ぶ(自動)','接続元と接続先を選び、経路を自動で引きます')+button('manual','結ぶ(ルート指定)','元機器 → 任意の経由点 → 先機器。クリック順に直線で結びます')+button('cancel','取消','未確定の配置・結線・ドラッグを取り消します')+button('undo','Undo')+button('delete','削除')+button('align','間隔を整える','おおまかな並びを保って行・列を等間隔に整えます。複数選択時はその機器だけ。')+'<span class="vceSpacer"></span>'+button('palette','機器一覧を隠す')+button('zoomOut','−','縮小')+'<span class="vceZoom"></span>'+button('zoomIn','＋','拡大')+button('fit','全体')+'</nav><div class="vceBody"><aside class="vcePalette"><h3>配線図の機器 <small data-vce-count></small></h3><input class="vceSearch" type="search" placeholder="階・番号・型番で検索" aria-label="配置機器を検索"><div class="vcePaletteList"></div><p class="vceSmall">ドラッグ、または機器を選びキャンバスをタップ。</p><p class="vceSmall">接続図の移動・削除は配線図や概算に影響しません。</p></aside><main class="vceWorkspace"><div class="vceViewport" tabindex="0" aria-label="接続図キャンバス"><div class="vceStage"><div class="vceWorld"></div></div></div><div class="vceDetails"></div></main></div><div class="vceStatus" role="status" aria-live="polite"></div>';
+    overlay.innerHTML='<header class="vceHead"><h2>接続図</h2><span class="vceTitle"></span>'+(scenarios.length>1?'<select data-vce-scenario aria-label="接続図の構成">'+scenarios.map(value=>'<option value="'+escape(value.key||value.id)+'">'+escape(value.label||value.name||value.key||value.id)+'</option>').join('')+'</select>':'')+'<button type="button" class="vceDone" data-vce-action="close">完了・配線図へ</button></header><nav class="vceTools" aria-label="接続図の操作">'+button('select','選択・移動')+button('connect','結ぶ(自動)','接続元と接続先を選び、経路を自動で引きます')+button('manual','結ぶ(ルート指定)','元機器 → 任意の経由点 → 先機器。クリック順に直線で結びます')+button('cancel','取消','未確定の配置・結線・ドラッグを取り消します')+button('undo','Undo')+button('delete','削除')+button('align','間隔を整える','おおまかな並びを保って行・列を等間隔に整えます。複数選択時はその機器だけ。')+'<span class="vceSpacer"></span>'+button('palette','機器一覧を隠す')+button('zoomOut','−','縮小')+'<span class="vceZoom"></span>'+button('zoomIn','＋','拡大')+button('fit','全体')+'</nav><div class="vceBody"><aside class="vcePalette"><h3>配線図の機器 <small data-vce-count></small></h3><input class="vceSearch" type="search" placeholder="階・番号・型番で検索" aria-label="配置機器を検索"><div class="vcePaletteList"></div><p class="vceSmall">ドラッグ、または機器を選びキャンバスをタップ。</p><p class="vceSmall">接続図の移動・削除は配線図や概算に影響しません。</p></aside><main class="vceWorkspace"><div class="vceViewport" tabindex="0" aria-label="接続図キャンバス"><div class="vceStage"><div class="vceWorld"></div></div></div><div class="vceDetails"></div></main></div><div class="vceStatus" role="status" aria-live="polite"></div>';
     const priorOverflow=document.body.style.overflow,priorFocus=document.activeElement;document.body.appendChild(overlay);document.body.style.overflow='hidden';
-    session={options,graph,scenario:options.activeScenario||'proposed',overlay,viewport:overlay.querySelector('.vceViewport'),stage:overlay.querySelector('.vceStage'),world:overlay.querySelector('.vceWorld'),zoom:Math.max(.2,Math.min(2.5,Number(view.zoom)||1)),mode:'select',selectedNodes:new Set(),selectedLink:null,selectedControl:null,undo:[],pending:null,draft:null,drag:null,search:'',message:'機器をドラッグ、または選んでキャンバスへ配置します。',priorOverflow,priorFocus,paletteHidden:false,activePointers:new Set(),multitouch:false,composing:new Set(),saveBusy:false,fieldValues:new WeakMap()};
+    session={options,graph,scenario:options.activeScenario||'proposed',overlay,viewport:overlay.querySelector('.vceViewport'),stage:overlay.querySelector('.vceStage'),world:overlay.querySelector('.vceWorld'),zoom:Math.max(.2,Math.min(2.5,Number(view.zoom)||1)),mode:'select',selectedNodes:new Set(),selectedLink:null,selectedControl:null,undo:[],pending:null,draft:null,drag:null,search:'',message:'機器をドラッグ、または選んでキャンバスへ配置します。',priorOverflow,priorFocus,paletteHidden:false,activePointers:new Set(),multitouch:false,composing:new Set(),fieldValues:new WeakMap()};
     overlay.querySelector('.vceTitle').textContent=options.title||'';const select=overlay.querySelector('[data-vce-scenario]');if(select)select.value=session.scenario;
     overlay.addEventListener('click',click);overlay.addEventListener('change',change);overlay.addEventListener('compositionstart',compositionStart);overlay.addEventListener('compositionend',compositionEnd);overlay.querySelector('.vceSearch').addEventListener('input',event=>{session.search=event.target.value;renderPalette();});
     const vp=session.viewport;vp.addEventListener('pointerdown',pointerDown);vp.addEventListener('pointermove',pointerMove);vp.addEventListener('pointerup',pointerUp);vp.addEventListener('pointercancel',event=>{if(!session)return;session.activePointers.delete(event.pointerId);session.multitouch=session.activePointers.size>0;cancelGesture();});vp.addEventListener('lostpointercapture',()=>{if(session?.drag)cancelGesture();});
@@ -9314,10 +9374,10 @@ function vasCommitCompletedExample(demo,photos,owner,sequence,change,context={so
   }
   function renderDetails(){renderDetailsContent();const s=session;for(const field of s.overlay.querySelectorAll('[data-vce-field],[data-vce-side],[data-vce-node-field]'))s.fieldValues.set(field,String(field.value??''));}
   function renderStatus(){if(session)session.overlay.querySelector('.vceStatus').textContent=session.message;}
-  function render(){const s=session;if(!s)return;renderSaveState();renderGraph();renderPalette();renderDetails();renderStatus();for(const button of s.overlay.querySelectorAll('[data-vce-action]')){const action=button.dataset.vceAction;if(['select','connect','manual'].includes(action))button.setAttribute('aria-pressed',s.mode===action);if(action==='undo')button.disabled=!s.undo.length;if(action==='delete')button.disabled=!s.selectedNodes.size&&!s.selectedLink;if(action==='palette')button.textContent=s.paletteHidden?'機器一覧を表示':'機器一覧を隠す';}s.overlay.querySelector('.vceZoom').textContent=Math.round(s.zoom*100)+'%';}
+  function render(){const s=session;if(!s)return;renderGraph();renderPalette();renderDetails();renderStatus();for(const button of s.overlay.querySelectorAll('[data-vce-action]')){const action=button.dataset.vceAction;if(['select','connect','manual'].includes(action))button.setAttribute('aria-pressed',s.mode===action);if(action==='undo')button.disabled=!s.undo.length;if(action==='delete')button.disabled=!s.selectedNodes.size&&!s.selectedLink;if(action==='palette')button.textContent=s.paletteHidden?'機器一覧を表示':'機器一覧を隠す';}s.overlay.querySelector('.vceZoom').textContent=Math.round(s.zoom*100)+'%';}
   function zoomBy(factor,at){const s=session;if(s.drag)cancelGesture(false);const rect=s.viewport.getBoundingClientRect(),client=at||{x:rect.left+rect.width/2,y:rect.top+rect.height/2},point=clientPoint(client.x,client.y),next=Math.max(.2,Math.min(2.5,s.zoom*factor));s.zoom=next;renderGraph();s.viewport.scrollLeft=point.x*next-(client.x-rect.left);s.viewport.scrollTop=point.y*next-(client.y-rect.top);s.overlay.querySelector('.vceZoom').textContent=Math.round(next*100)+'%';}
   function fit(){const s=session;if(!s.graph.nodes.length){s.zoom=1;renderGraph();return;}const boxes=s.graph.nodes.map(node=>geometry().nodeBox(node)),left=Math.min(...boxes.map(box=>box.x)),top=Math.min(...boxes.map(box=>box.y)),right=Math.max(...boxes.map(box=>box.x+box.w)),bottom=Math.max(...boxes.map(box=>box.y+box.h));const width=s.viewport.clientWidth||900,height=s.viewport.clientHeight||600;s.zoom=Math.max(.2,Math.min(1.25,(width-80)/(right-left+60),(height-80)/(bottom-top+60)));renderGraph();s.viewport.scrollLeft=Math.max(0,(left-40)*s.zoom);s.viewport.scrollTop=Math.max(0,(top-40)*s.zoom);s.overlay.querySelector('.vceZoom').textContent=Math.round(s.zoom*100)+'%';}
-  function click(event){if(!session||session.saveBusy)return;const device=event.target.closest?.('[data-vce-device]');if(device){safe(()=>{ensureCurrent();session.pending=device.dataset.vceDevice;session.draft=null;session.mode='select';session.message='キャンバスの配置位置をタップしてください。';render();});return;}const action=event.target.closest?.('[data-vce-action]')?.dataset.vceAction;if(!action)return;if(action==='saveExample'){void saveExample();return;}if(action==='close'){close();return;}if(action==='cancel'){cancelGesture();return;}safe(()=>{const s=ensureCurrent();if(action==='undo')return undo();if(action==='delete')return deleteSelection();if(action==='align')return align();if(action==='zoomIn')return zoomBy(1.2);if(action==='zoomOut')return zoomBy(1/1.2);if(action==='fit')return fit();if(action==='palette'){cancelGesture(false);s.paletteHidden=!s.paletteHidden;s.overlay.classList.toggle('vcePaletteHidden',s.paletteHidden);render();return;}if(action==='autoRoute'&&s.selectedLink)return setRoute(s.selectedLink,'auto');if(action==='editRoute'&&s.selectedLink){setRoute(s.selectedLink,manualRoute(findLink(s.selectedLink)));s.message='丸い点や線上の丸をドラッグして経路を変更します。点を選んで削除もできます。';renderStatus();return;}if(['select','connect','manual'].includes(action)){cancelGesture(false);s.mode=action;s.message=action==='manual'?'元機器 → 任意の経由点 → 先機器。クリックした順に直線で結びます。':action==='connect'?'接続元と接続先の機器を順に選んでください。':'機器や線を選んで移動・編集できます。';render();}});}
+  function click(event){if(!session)return;const device=event.target.closest?.('[data-vce-device]');if(device){safe(()=>{ensureCurrent();session.pending=device.dataset.vceDevice;session.draft=null;session.mode='select';session.message='キャンバスの配置位置をタップしてください。';render();});return;}const action=event.target.closest?.('[data-vce-action]')?.dataset.vceAction;if(!action)return;if(action==='close'){safe(()=>{const s=session;const stale=(s.options.isOwnerCurrent&&s.options.isOwnerCurrent()===false)||(s.options.isCurrent&&s.options.isCurrent()===false);if(!stale)prepareForSave();close();});return;}if(action==='cancel'){cancelGesture();return;}safe(()=>{const s=ensureCurrent();if(action==='undo')return undo();if(action==='delete')return deleteSelection();if(action==='align')return align();if(action==='zoomIn')return zoomBy(1.2);if(action==='zoomOut')return zoomBy(1/1.2);if(action==='fit')return fit();if(action==='palette'){cancelGesture(false);s.paletteHidden=!s.paletteHidden;s.overlay.classList.toggle('vcePaletteHidden',s.paletteHidden);render();return;}if(action==='autoRoute'&&s.selectedLink)return setRoute(s.selectedLink,'auto');if(action==='editRoute'&&s.selectedLink){setRoute(s.selectedLink,manualRoute(findLink(s.selectedLink)));s.message='丸い点や線上の丸をドラッグして経路を変更します。点を選んで削除もできます。';renderStatus();return;}if(['select','connect','manual'].includes(action)){cancelGesture(false);s.mode=action;s.message=action==='manual'?'元機器 → 任意の経由点 → 先機器。クリックした順に直線で結びます。':action==='connect'?'接続元と接続先の機器を順に選んでください。':'機器や線を選んで移動・編集できます。';render();}});}
   function compositionStart(event){if(session)session.composing.add(event.target);}
   function compositionEnd(event){if(session)session.composing.delete(event.target);}
   // changeと保存前の確定で同じ検証を使い、複数の未blur入力を一度に反映する。
@@ -9355,35 +9415,24 @@ function vasCommitCompletedExample(demo,photos,owner,sequence,change,context={so
   }
   function prepareForSave(){
     const s=ensureCurrent();
-    if(s.composing.size)throw Error('文字の変換を確定してから完成例を保存してください。');
+    if(s.composing.size)throw Error('文字の変換を確定してから保存・画面切替してください。');
     if(s.drag||s.draft||s.pending)throw Error('接続図の作図を完了するか、取消してから保存してください。');
     applyFieldInputs([...s.overlay.querySelectorAll('[data-vce-field],[data-vce-side],[data-vce-node-field]')]);
     ensureCurrent(s);return true;
   }
-  function renderSaveState(){const s=session;if(!s)return;s.overlay.setAttribute('aria-busy',String(s.saveBusy));const button=s.overlay.querySelector('[data-vce-action="saveExample"]');if(button)button.disabled=s.saveBusy;}
-  async function saveExample(){
-    const s=session;if(!s||s.saveBusy||typeof s.options.onSaveExample!=='function')return false;
-    try{
-      prepareForSave();s.saveBusy=true;renderSaveState();s.message='完成例の保存を確認しています。';renderStatus();
-      const saved=await s.options.onSaveExample();
-      if(session===s){s.message=saved===true?'保存した時点の案件全体を完成例に反映しました。次回の完成例で開けます。':'保存は完了していません。現在の編集は保持しています。';renderStatus();}
-      return saved===true;
-    }catch(error){if(session===s)report(error);return false;}
-    finally{if(session===s){s.saveBusy=false;renderSaveState();s.overlay.querySelector('[data-vce-action="saveExample"]')?.focus({preventScroll:true});}}
-  }
-  function change(event){if(!session||session.saveBusy||event.isComposing||session.composing.has(event.target))return false;return safe(()=>{
+  function change(event){if(!session||event.isComposing||session.composing.has(event.target))return false;return safe(()=>{
     const s=ensureCurrent(),target=event.target;
     if(target.matches('[data-vce-scenario]')){cancelGesture(false);const next=s.options.onScenarioChange?.(target.value);if(!next){target.value=s.scenario;return;}s.scenario=target.value;s.graph=normalizeGraph(next.graph);if(next.devices)s.options.devices=next.devices;s.undo=[];s.selectedNodes.clear();s.selectedLink=null;s.overlay.querySelector('.vceTitle').textContent=next.title||s.options.title||'';render();fit();return;}
     return applyFieldInputs([target]);
   });}
-  function pointerDown(event){if(!session||session.saveBusy||event.button!==undefined&&event.button!==0)return;safe(()=>{const s=ensureCurrent(),point=clientPoint(event.clientX,event.clientY),node=event.target.closest?.('[data-vce-node]'),line=event.target.closest?.('[data-vce-link]'),control=event.target.closest?.('[data-vce-control]'),segment=event.target.closest?.('[data-vce-segment]');event.preventDefault();s.activePointers.add(event.pointerId);if(s.activePointers.size>1||s.multitouch){s.multitouch=true;cancelGesture();s.message='複数の指での操作を取り消しました。指を離してから操作してください。';renderStatus();return;}s.viewport.focus({preventScroll:true});if(s.drag){cancelGesture();return;}if(s.pending||s.mode!=='select'){s.drag={kind:'tap',x:event.clientX,y:event.clientY,pointerId:event.pointerId,nodeId:node?.dataset.vceNode,point,moved:false};}
+  function pointerDown(event){if(!session||event.button!==undefined&&event.button!==0)return;safe(()=>{const s=ensureCurrent(),point=clientPoint(event.clientX,event.clientY),node=event.target.closest?.('[data-vce-node]'),line=event.target.closest?.('[data-vce-link]'),control=event.target.closest?.('[data-vce-control]'),segment=event.target.closest?.('[data-vce-segment]');event.preventDefault();s.activePointers.add(event.pointerId);if(s.activePointers.size>1||s.multitouch){s.multitouch=true;cancelGesture();s.message='複数の指での操作を取り消しました。指を離してから操作してください。';renderStatus();return;}s.viewport.focus({preventScroll:true});if(s.drag){cancelGesture();return;}if(s.pending||s.mode!=='select'){s.drag={kind:'tap',x:event.clientX,y:event.clientY,pointerId:event.pointerId,nodeId:node?.dataset.vceNode,point,moved:false};}
       else if(control||segment){const link=findLink(s.selectedLink);if(!link)return;s.selectedControl=control?Number(control.dataset.vceControl):null;s.drag={kind:control?'control':'segment',index:Number(control?.dataset.vceControl??segment.dataset.vceSegment),point,pointerId:event.pointerId,before:clone(s.graph),linkId:link.id,moved:false};}
       else if(node){const id=node.dataset.vceNode;if(event.shiftKey){selectNode(id,true);return;}if(!s.selectedNodes.has(id))selectNode(id);s.drag={kind:'nodes',point,pointerId:event.pointerId,before:clone(s.graph),ids:[...s.selectedNodes],moved:false};}
       else if(line){selectLink(line.dataset.vceLink);return;}else{s.selectedNodes.clear();s.selectedLink=null;s.selectedControl=null;s.drag={kind:'pan',x:event.clientX,y:event.clientY,left:s.viewport.scrollLeft,top:s.viewport.scrollTop,pointerId:event.pointerId,moved:false};renderDetails();renderGraph();}s.viewport.setPointerCapture?.(event.pointerId);});}
-  function pointerMove(event){if(!session||session.saveBusy)return;safe(()=>{const s=ensureCurrent(),point=clientPoint(event.clientX,event.clientY),drag=s.drag;if(!drag){if(s.draft){s.draft.cursor=point;renderGraph();}return;}if(drag.pointerId!==event.pointerId)return;event.preventDefault();if(drag.kind==='pan'){s.viewport.scrollLeft=drag.left-(event.clientX-drag.x);s.viewport.scrollTop=drag.top-(event.clientY-drag.y);drag.moved=true;return;}if(drag.kind==='tap'){if(Math.abs(event.clientX-drag.x)+Math.abs(event.clientY-drag.y)>8)drag.moved=true;return;}let dx=point.x-drag.point.x,dy=point.y-drag.point.y;if(Math.abs(dx)+Math.abs(dy)<2/s.zoom&&!drag.moved)return;drag.moved=true;s.graph=clone(drag.before);if(drag.kind==='nodes'){const selected=s.graph.nodes.filter(node=>drag.ids.includes(node.id));dx=Math.max(dx,-Math.min(...selected.map(node=>geometry().nodeBox(node).x)));dy=Math.max(dy,-Math.min(...selected.map(node=>geometry().nodeBox(node).y)));for(const node of selected){const box=geometry().nodeBox(node);node.x=box.x+dx;node.y=box.y+dy;}geometry().translateRoutes(s.graph,drag.ids,dx,dy);}else{const link=findLink(drag.linkId);if(drag.kind==='control'){link.route=manualRoute(link);link.route.points[drag.index]={...link.route.points[drag.index],x:point.x,y:point.y};}else link.route=segmentMoved(link,drag.index,dx,dy,drag.before);}renderGraph();});}
-  function pointerUp(event){if(!session||session.saveBusy)return;safe(()=>{const s=ensureCurrent(),drag=s.drag;s.activePointers.delete(event.pointerId);if(s.multitouch){if(!s.activePointers.size)s.multitouch=false;return;}if(!drag||drag.pointerId!==event.pointerId)return;event.preventDefault();s.drag=null;if(s.viewport.hasPointerCapture?.(event.pointerId))s.viewport.releasePointerCapture(event.pointerId);if(drag.kind==='tap'){if(drag.moved||!isInside(event.clientX,event.clientY))return;const point=clientPoint(event.clientX,event.clientY),target=document.elementFromPoint?.(event.clientX,event.clientY),nodeId=s.mode==='manual'?nodeAtPoint(point)?.id:target?.closest?.('[data-vce-node]')?.dataset.vceNode||drag.nodeId;if(s.pending){place(s.pending,{x:point.x-141,y:point.y-50});}else if(nodeId)draftNode(nodeId,point);else if(s.mode==='manual'&&s.draft){s.draft.points.push({x:point.x,y:point.y});s.draft.cursor={x:point.x,y:point.y};s.message='経由点を追加しました。クリックした順に結びます。最後に接続先の機器を選んでください。';render();}return;}if(drag.before&&drag.moved){const next=clone(s.graph);s.graph=clone(drag.before);try{publish(next,drag.kind==='nodes'?'機器を移動しました。':'線の経路を調整しました。',drag.before);}catch(error){s.graph=clone(drag.before);render();throw error;}}else render();});}
-  function keyDown(event){if(!session||session.saveBusy||event.isComposing||event.keyCode===229)return;const s=session,target=event.target,typing=target?.matches?.('input,textarea,select,[contenteditable="true"]');if(event.key==='Tab'){const items=[...s.overlay.querySelectorAll('button,input,select,summary,[tabindex="0"]')].filter(element=>{if(element.disabled||element.hasAttribute('disabled')||element.closest('[hidden]')||s.paletteHidden&&element.closest('.vcePalette'))return false;const details=element.closest('details');return !details||details.hasAttribute('open')||element===details.querySelector('summary');});if(!items.length)return;const first=items[0],last=items[items.length-1];if(!items.includes(document.activeElement)){event.preventDefault();(event.shiftKey?last:first).focus();}else if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}return;}if(typing)return;if(event.key==='Escape'){event.preventDefault();cancelGesture();return;}if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){event.preventDefault();safe(undo);}else if(event.key==='Delete'||event.key==='Backspace'){event.preventDefault();safe(deleteSelection);}else if(event.key==='Enter'||event.key===' '){const id=target?.dataset?.vceNode;if(id){event.preventDefault();safe(()=>{if(s.mode==='select')selectNode(id,event.shiftKey);else draftNode(id);});}}}
-  const API={open,close,prepareForSave,saveExample,hasPending:()=>!!(session?.drag||session?.draft||session?.pending||session?.composing.size),cancelPending:()=>cancelGesture(false),snapshot:()=>session?clone(session.graph):null,undo,place,connect,setRoute,moveNodes,deleteSelection,align,clientPoint,cancel:cancelGesture,selectNode,selectLink,zoomBy,fit,nodeInfo,icon,get state(){return session;}};
+  function pointerMove(event){if(!session)return;safe(()=>{const s=ensureCurrent(),point=clientPoint(event.clientX,event.clientY),drag=s.drag;if(!drag){if(s.draft){s.draft.cursor=point;renderGraph();}return;}if(drag.pointerId!==event.pointerId)return;event.preventDefault();if(drag.kind==='pan'){s.viewport.scrollLeft=drag.left-(event.clientX-drag.x);s.viewport.scrollTop=drag.top-(event.clientY-drag.y);drag.moved=true;return;}if(drag.kind==='tap'){if(Math.abs(event.clientX-drag.x)+Math.abs(event.clientY-drag.y)>8)drag.moved=true;return;}let dx=point.x-drag.point.x,dy=point.y-drag.point.y;if(Math.abs(dx)+Math.abs(dy)<2/s.zoom&&!drag.moved)return;drag.moved=true;s.graph=clone(drag.before);if(drag.kind==='nodes'){const selected=s.graph.nodes.filter(node=>drag.ids.includes(node.id));dx=Math.max(dx,-Math.min(...selected.map(node=>geometry().nodeBox(node).x)));dy=Math.max(dy,-Math.min(...selected.map(node=>geometry().nodeBox(node).y)));for(const node of selected){const box=geometry().nodeBox(node);node.x=box.x+dx;node.y=box.y+dy;}geometry().translateRoutes(s.graph,drag.ids,dx,dy);}else{const link=findLink(drag.linkId);if(drag.kind==='control'){link.route=manualRoute(link);link.route.points[drag.index]={...link.route.points[drag.index],x:point.x,y:point.y};}else link.route=segmentMoved(link,drag.index,dx,dy,drag.before);}renderGraph();});}
+  function pointerUp(event){if(!session)return;safe(()=>{const s=ensureCurrent(),drag=s.drag;s.activePointers.delete(event.pointerId);if(s.multitouch){if(!s.activePointers.size)s.multitouch=false;return;}if(!drag||drag.pointerId!==event.pointerId)return;event.preventDefault();s.drag=null;if(s.viewport.hasPointerCapture?.(event.pointerId))s.viewport.releasePointerCapture(event.pointerId);if(drag.kind==='tap'){if(drag.moved||!isInside(event.clientX,event.clientY))return;const point=clientPoint(event.clientX,event.clientY),target=document.elementFromPoint?.(event.clientX,event.clientY),nodeId=s.mode==='manual'?nodeAtPoint(point)?.id:target?.closest?.('[data-vce-node]')?.dataset.vceNode||drag.nodeId;if(s.pending){place(s.pending,{x:point.x-141,y:point.y-50});}else if(nodeId)draftNode(nodeId,point);else if(s.mode==='manual'&&s.draft){s.draft.points.push({x:point.x,y:point.y});s.draft.cursor={x:point.x,y:point.y};s.message='経由点を追加しました。クリックした順に結びます。最後に接続先の機器を選んでください。';render();}return;}if(drag.before&&drag.moved){const next=clone(s.graph);s.graph=clone(drag.before);try{publish(next,drag.kind==='nodes'?'機器を移動しました。':'線の経路を調整しました。',drag.before);}catch(error){s.graph=clone(drag.before);render();throw error;}}else render();});}
+  function keyDown(event){if(!session||event.isComposing||event.keyCode===229||document.getElementById('modalOverlay')?.classList.contains('show'))return;const s=session,target=event.target,typing=target?.matches?.('input,textarea,select,[contenteditable="true"]');if(event.key==='Tab'){const items=[...s.overlay.querySelectorAll('button,input,select,summary,[tabindex="0"]')].filter(element=>{if(element.disabled||element.hasAttribute('disabled')||element.closest('[hidden]')||s.paletteHidden&&element.closest('.vcePalette'))return false;const details=element.closest('details');return !details||details.hasAttribute('open')||element===details.querySelector('summary');});if(!items.length)return;const first=items[0],last=items[items.length-1];if(!items.includes(document.activeElement)){event.preventDefault();(event.shiftKey?last:first).focus();}else if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}return;}if(typing)return;if(event.key==='Escape'){event.preventDefault();cancelGesture();return;}if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){event.preventDefault();safe(undo);}else if(event.key==='Delete'||event.key==='Backspace'){event.preventDefault();safe(deleteSelection);}else if(event.key==='Enter'||event.key===' '){const id=target?.dataset?.vceNode;if(id){event.preventDefault();safe(()=>{if(s.mode==='select')selectNode(id,event.shiftKey);else draftNode(id);});}}}
+  const API={open,close,prepareForSave,hasPending:()=>!!(session?.drag||session?.draft||session?.pending||session?.composing.size),cancelPending:()=>cancelGesture(false),snapshot:()=>session?clone(session.graph):null,undo,place,connect,setRoute,moveNodes,deleteSelection,align,clientPoint,cancel:cancelGesture,selectNode,selectLink,zoomBy,fit,nodeInfo,icon,get state(){return session;}};
   global.VASConnectionEditor=API;global.VAS_CONNECTION_TEST=API;global.vasConnectionOpen=open;
 })(window);
 
